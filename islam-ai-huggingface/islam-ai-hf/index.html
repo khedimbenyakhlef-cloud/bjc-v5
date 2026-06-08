@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>إسلام AI — المساعد الإسلامي العالمي</title>
+    <meta name="description" content="إسلام AI — مساعد إسلامي أكاديمي شامل لتعلم التجويد، الحديث، العقيدة، الفقه المذهبي، المواريث، السيرة والتاريخ، وإعراب القرآن. تأسس بواسطة KHEDIM BENYAKHLEF DIT BENY-JOE." />
+    <meta name="theme-color" content="#0A0D0B" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="إسلام AI" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Favicon SVG inline -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%230A0D0B'/%3E%3Ccircle cx='28' cy='32' r='14' fill='%23C5A059'/%3E%3Ccircle cx='34' cy='28' r='10' fill='%230A0D0B'/%3E%3Cpolygon points='50,12 51.8,17.5 57.5,17.5 53,21 54.8,26.5 50,23 45.2,26.5 47,21 42.5,17.5 48.2,17.5' fill='%23C5A059'/%3E%3C/svg%3E" />
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='32' fill='%230A0D0B'/%3E%3Ccircle cx='84' cy='96' r='42' fill='%23C5A059'/%3E%3Ccircle cx='102' cy='84' r='30' fill='%230A0D0B'/%3E%3Cpolygon points='150,36 155.4,52.5 172.5,52.5 159,63 164.4,79.5 150,69 135.6,79.5 141,63 127.5,52.5 144.6,52.5' fill='%23C5A059'/%3E%3C/svg%3E" />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="إسلام AI — المساعد الإسلامي العالمي" />
+    <meta property="og:description" content="منصة إسلامية أكاديمية متكاملة — بواسطة KHEDIM BENYAKHLEF" />
+    <meta property="og:type" content="website" />
+
+    <!-- PWA Install Banner styles -->
+    <style>
+      #pwa-install-banner {
+        display: none;
+        position: fixed;
+        bottom: 80px;
+        left: 12px;
+        right: 12px;
+        z-index: 9999;
+        background: linear-gradient(135deg, #111814 0%, #0D1410 100%);
+        border: 1px solid #C5A059;
+        border-radius: 16px;
+        padding: 16px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(197,160,89,0.1);
+        font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+        direction: rtl;
+        animation: slideUp 0.4s ease;
+      }
+      @keyframes slideUp {
+        from { transform: translateY(20px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+      }
+      #pwa-install-banner.show { display: block; }
+      .pwa-banner-top {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .pwa-icon {
+        width: 52px;
+        height: 52px;
+        border-radius: 12px;
+        background: #0A0D0B;
+        border: 1px solid rgba(197,160,89,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        font-size: 26px;
+      }
+      .pwa-info { flex: 1; }
+      .pwa-title {
+        color: #C5A059;
+        font-size: 14px;
+        font-weight: 700;
+        margin: 0 0 2px 0;
+      }
+      .pwa-desc {
+        color: rgba(224,216,208,0.7);
+        font-size: 11px;
+        margin: 0;
+        line-height: 1.4;
+      }
+      .pwa-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .pwa-btn-install {
+        flex: 1;
+        background: #C5A059;
+        color: #0A0D0B;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 16px;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-width: 140px;
+      }
+      .pwa-btn-install:active { opacity: 0.85; }
+      .pwa-btn-dismiss {
+        background: transparent;
+        color: rgba(224,216,208,0.5);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 10px;
+        padding: 10px 14px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      /* iOS manual guide */
+      #ios-guide {
+        display: none;
+        margin-top: 12px;
+        padding: 10px 12px;
+        background: rgba(197,160,89,0.08);
+        border: 1px solid rgba(197,160,89,0.2);
+        border-radius: 10px;
+        color: rgba(224,216,208,0.85);
+        font-size: 11px;
+        line-height: 1.7;
+      }
+      #ios-guide.show { display: block; }
+      #ios-guide strong { color: #C5A059; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <!-- ===== BANNIÈRE D'INSTALLATION PWA ===== -->
+    <div id="pwa-install-banner">
+      <div class="pwa-banner-top">
+        <div class="pwa-icon">🕌</div>
+        <div class="pwa-info">
+          <p class="pwa-title">ثبِّت تطبيق إسلام AI 📲</p>
+          <p class="pwa-desc">أضفه لشاشتك الرئيسية واستخدمه بدون إنترنت مثل أي تطبيق عادي — مجاني تماماً</p>
+        </div>
+      </div>
+      <div class="pwa-actions">
+        <button class="pwa-btn-install" id="btn-pwa-install">
+          ⬇️ تثبيت التطبيق مجاناً
+        </button>
+        <button class="pwa-btn-dismiss" id="btn-pwa-dismiss">لاحقاً</button>
+      </div>
+      <!-- Guide iOS -->
+      <div id="ios-guide">
+        <strong>📱 iPhone / iPad:</strong><br/>
+        ١ — اضغط على زر <strong>المشاركة</strong> ⬆️ في أسفل Safari<br/>
+        ٢ — اختر <strong>"إضافة إلى الشاشة الرئيسية"</strong> 🏠<br/>
+        ٣ — اضغط <strong>إضافة</strong> — التطبيق سيظهر على شاشتك فوراً ✅
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.tsx"></script>
+
+    <!-- ===== Service Worker + PWA Install Logic ===== -->
+    <script>
+      // Register Service Worker
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        });
+      }
+
+      // Detect iOS
+      const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      const isInStandaloneMode = window.matchMedia('(display-mode: standalone)').matches
+        || window.navigator.standalone;
+
+      // Show banner logic
+      let deferredPrompt = null;
+      const banner = document.getElementById('pwa-install-banner');
+      const btnInstall = document.getElementById('btn-pwa-install');
+      const btnDismiss = document.getElementById('btn-pwa-dismiss');
+      const iosGuide = document.getElementById('ios-guide');
+
+      // Don't show if already installed
+      if (!isInStandaloneMode && !localStorage.getItem('pwa-dismissed')) {
+
+        if (isIOS) {
+          // Show after 3 seconds on iOS with manual guide
+          setTimeout(() => {
+            banner.classList.add('show');
+            iosGuide.classList.add('show');
+            btnInstall.textContent = '📱 كيفية التثبيت على iPhone';
+            btnInstall.onclick = () => {
+              iosGuide.classList.toggle('show');
+            };
+          }, 3000);
+        } else {
+          // Android/Desktop — wait for beforeinstallprompt
+          window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            setTimeout(() => banner.classList.add('show'), 2000);
+          });
+        }
+      }
+
+      // Install button click
+      if (btnInstall) {
+        btnInstall.addEventListener('click', async () => {
+          if (deferredPrompt) {
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            deferredPrompt = null;
+            banner.classList.remove('show');
+            if (outcome === 'accepted') {
+              localStorage.setItem('pwa-dismissed', '1');
+            }
+          }
+        });
+      }
+
+      // Dismiss button
+      if (btnDismiss) {
+        btnDismiss.addEventListener('click', () => {
+          banner.classList.remove('show');
+          localStorage.setItem('pwa-dismissed', '1');
+        });
+      }
+
+      // Hide banner if installed
+      window.addEventListener('appinstalled', () => {
+        banner.classList.remove('show');
+        localStorage.setItem('pwa-dismissed', '1');
+      });
+    </script>
+  </body>
+</html>

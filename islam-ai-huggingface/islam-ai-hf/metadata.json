@@ -1,0 +1,6 @@
+{
+  "name": "إسلام AI",
+  "description": "إسلام AI — مساعد إسلامي أكاديمي شامل لتعلم التجويد، الحديث، العقيدة، الفقه المذهبي، المواريث، السيرة والتاريخ، وإعراب القرآن. تأسس بواسطة KHEDIM BENYAKHLEF DIT BENY-JOE.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
