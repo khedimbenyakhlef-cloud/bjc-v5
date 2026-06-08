@@ -1,12 +1,4 @@
 ---
-title: إسلام AI
-emoji: 🕌
-colorFrom: yellow
-colorTo: green
-sdk: docker
-pinned: true
-license: apache-2.0
----
 
 <div align="center">
 
