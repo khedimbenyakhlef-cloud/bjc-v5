@@ -158,7 +158,7 @@ async function runBjcDeploymentPipeline({ deploymentId, appId, slug, zipB2Key, s
 
       appendLog(deploymentId, `Processus lancé avec succès (PID: ${processInfo.pid}, Port d'écoute: ${processInfo.port}).`);
       appendLog(deploymentId, "⏳ Attente de 8 secondes avant le début des vérifications de santé (Warm up interval)...");
-      await sleep(8000);
+      await sleep(60000);
 
       // Perform health checks 3 times
       let isHealthy = false;
@@ -171,7 +171,7 @@ async function runBjcDeploymentPipeline({ deploymentId, appId, slug, zipB2Key, s
           break;
         } else {
           appendLog(deploymentId, `⚠ Vérification de santé #${i}/3 : Échec ou Timeout. tentative suivante...`);
-          await sleep(2000);
+          await sleep(10000);
         }
       }
 
