@@ -1,3 +1,4 @@
+const { execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const b2Storage = require("./b2Storage");
@@ -94,9 +95,7 @@ async function runBjcDeploymentPipeline({ deploymentId, appId, slug, zipB2Key, s
     appendLog(deploymentId, "📦 Initialisation de l'outil autonome d'installation des dépendances (Caching activé)...");
     
     if (detectedRuntime === "nodejs" || detectedRuntime === "express") {
-      appendLog(deploymentId, "⚡ Exécution de : npm install --production --prefer-offline (Installation ultra-rapide)");
-      appendLog(deploymentId, "[npm-cli] Resolving packages graph...");
-      appendLog(deploymentId, "[npm-cli] Added 142 packages in 0.82 seconds (134 cached package tiers)");
+      try { execSync("npm install --production", { cwd: targetDir, stdio: "pipe" }); appendLog(deploymentId, "[npm] Installation terminee avec succes."); } catch(e) { appendLog(deploymentId, "[npm] Erreur: " + e.message); throw e; }
     } else if (detectedRuntime === "python") {
       appendLog(deploymentId, "⚡ Exécution de : pip install -r requirements.txt --no-cache-dir");
       appendLog(deploymentId, "[pip] Collecting fastapi (from requirements.txt)...");
