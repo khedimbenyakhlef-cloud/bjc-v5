@@ -21,8 +21,8 @@ function getS3Client() {
   if (s3ClientInstance) return s3ClientInstance;
 
   const endpoint = process.env.B2_ENDPOINT;
-  const accessKeyId = process.env.B2_KEY_ID;
-  const secretAccessKey = process.env.B2_APP_KEY;
+  const accessKeyId = process.env.B2_APPLICATION_KEY_ID;
+  const secretAccessKey = process.env.B2_APPLICATION_KEY;
   const region = process.env.B2_REGION || "us-east-1";
 
   if (!endpoint || !accessKeyId || !secretAccessKey) {
