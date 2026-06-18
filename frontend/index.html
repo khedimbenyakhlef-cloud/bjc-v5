@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Beny-Joe Cloud V5 - Authentification</title>
+  <!-- Google Font CDN -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Tailwind CDN for rapid vanilla styles mapping -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #0a0a0a;
+    }
+    .accent-glow {
+      box-shadow: 0 0 50px -12px rgba(124, 58, 237, 0.25);
+    }
+  </style>
+</head>
+<body class="text-slate-100 min-h-screen flex items-center justify-center p-4">
+
+  <!-- Background Ambient Glow -->
+  <div class="fixed top-0 left-0 w-96 h-96 bg-purple-900/10 rounded-full blur-3xl pointer-events-none"></div>
+  <div class="fixed bottom-0 right-0 w-96 h-96 bg-indigo-900/10 rounded-full blur-3xl pointer-events-none"></div>
+
+  <!-- Primary Wrapper Card -->
+  <div id="auth-card" class="w-full max-w-sm bg-[#111111] border border-slate-900 rounded-2xl p-8 shadow-2xl accent-glow relative z-10">
+    
+    <!-- Platform Logo Header -->
+    <div class="text-center mb-8">
+      <div class="inline-flex items-center justify-center p-3 bg-purple-600/10 text-purple-400 rounded-2xl mb-3 border border-purple-500/20">
+        <svg class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+        </svg>
+      </div>
+      <h1 class="text-xl font-bold tracking-tight text-white">Beny-Joe Cloud V5</h1>
+      <p class="text-xs text-slate-500 font-mono mt-1">Free-tier Serverless Platform</p>
+    </div>
+
+    <!-- Error Alert Box -->
+    <div id="error-box" class="hidden mb-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg text-xs text-rose-400">
+      <p id="error-message"></p>
+    </div>
+
+    <!-- Login Container -->
+    <div id="login-container">
+      <form id="login-form" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1.5" for="login-email">Adresse Email</label>
+          <input type="email" id="login-email" required class="w-full bg-[#0a0a0a] border border-slate-800 rounded-lg px-3.5 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-purple-500/70" placeholder="vous@exemple.com">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1.5" for="login-password">Mot de passe</label>
+          <input type="password" id="login-password" required class="w-full bg-[#0a0a0a] border border-slate-800 rounded-lg px-3.5 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-purple-500/70" placeholder="••••••••">
+        </div>
+        <button type="submit" class="w-full bg-purple-600 hover:bg-purple-500 text-white font-medium text-sm py-2.5 rounded-lg border border-purple-500/30 transition shadow-lg shadow-purple-950/20 mt-2">
+          Se connecter
+        </button>
+      </form>
+      <p class="text-xs text-center text-slate-500 mt-6">
+        Nouveau sur la plateforme ?
+        <button onclick="toggleView(true)" class="text-purple-400 hover:text-purple-300 font-medium ml-1">Créer un compte</button>
+      </p>
+    </div>
+
+    <!-- Register Container -->
+    <div id="register-container" class="hidden">
+      <form id="register-form" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1.5" for="register-name">Nom d'usage</label>
+          <input type="text" id="register-name" required class="w-full bg-[#0a0a0a] border border-slate-800 rounded-lg px-3.5 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-purple-500/70" placeholder="Beny Joe">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1.5" for="register-email">Adresse Email</label>
+          <input type="email" id="register-email" required class="w-full bg-[#0a0a0a] border border-slate-800 rounded-lg px-3.5 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-purple-500/70" placeholder="vous@exemple.com">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1.5" for="register-password">Mot de passe</label>
+          <input type="password" id="register-password" required class="w-full bg-[#0a0a0a] border border-slate-800 rounded-lg px-3.5 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-purple-500/70" placeholder="••••••••">
+        </div>
+        <button type="submit" class="w-full bg-purple-600 hover:bg-purple-500 text-white font-medium text-sm py-2.5 rounded-lg border border-purple-500/30 transition shadow-lg shadow-purple-950/20 mt-2">
+          Finaliser mon inscription
+        </button>
+      </form>
+      <p class="text-xs text-center text-slate-500 mt-6">
+        Vous avez déjà un compte ?
+        <button onclick="toggleView(false)" class="text-purple-400 hover:text-purple-300 font-medium ml-1">S'identifier</button>
+      </p>
+    </div>
+
+  </div>
+
+  <script>
+    // Host URL settings for API Routing
+    const BASE_API_URL = window.location.origin;
+
+    // Check token logic
+    if (localStorage.getItem("token")) {
+      window.location.href = "/dashboard";
+    }
+
+    const errorBox = document.getElementById("error-box");
+    const errorMessage = document.getElementById("error-message");
+
+    function showError(msg) {
+      errorMessage.textContent = msg;
+      errorBox.classList.remove("hidden");
+    }
+
+    function clearError() {
+      errorBox.classList.add("hidden");
+    }
+
+    // Toggle showing Login or Registration Form
+    function toggleView(showRegister) {
+      clearError();
+      const loginBox = document.getElementById("login-container");
+      const regBox = document.getElementById("register-container");
+      if (showRegister) {
+        loginBox.classList.add("hidden");
+        regBox.classList.remove("hidden");
+      } else {
+        loginBox.classList.remove("hidden");
+        regBox.classList.add("hidden");
+      }
+    }
+
+    // API Call - Login form handling
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      clearError();
+      
+      const email = document.getElementById("login-email").value;
+      const password = document.getElementById("login-password").value;
+
+      try {
+        const response = await fetch(`${BASE_API_URL}/api/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password })
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Les identifiants transmis sont incorrects.");
+        }
+
+        // Store JWT token locally
+        localStorage.setItem("token", data.token);
+        localStorage.setItem("user", JSON.stringify(data.user));
+
+        window.location.href = "/dashboard";
+      } catch (err) {
+        showError(err.message);
+      }
+    });
+
+    // API Call - Register form handling
+    document.getElementById("register-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      clearError();
+
+      const name = document.getElementById("register-name").value;
+      const email = document.getElementById("register-email").value;
+      const password = document.getElementById("register-password").value;
+
+      try {
+        const response = await fetch(`${BASE_API_URL}/api/auth/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, email, password })
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Une erreur s'est produite lors de la validation du profil.");
+        }
+
+        // Store JWT token locally
+        localStorage.setItem("token", data.token);
+        localStorage.setItem("user", JSON.stringify(data.user));
+
+        window.location.href = "/dashboard";
+      } catch (err) {
+        showError(err.message);
+      }
+    });
+  </script>
+</body>
+</html>

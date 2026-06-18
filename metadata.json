@@ -1,0 +1,8 @@
+{
+  "name": "Beny-Joe Cloud V5",
+  "description": "Beny-Joe Cloud V5 is a secure, high-availability developer PaaS cockpit (like Render or Vercel) to configure environment variables with AES-256 encryption, execute live child Node.js processes, run SQL on a custom Postgres instance, test Upstash Redis CLI, upload files to Backblaze B2, and inspect real-time server telemetry.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
