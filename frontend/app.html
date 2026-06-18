@@ -340,7 +340,7 @@
         });
         const apps = await response.json();
         
-        const app = apps.find(a => a.id === appId);
+        const app = (apps.apps || apps).find(a => a.id === appId);
         if (!app) {
           throw new Error("Impossible de trouver l'application demandée.");
         }
