@@ -416,7 +416,7 @@ app.post("/api/apps/:id/deploy", authenticateJWT, upload.single("zip"), async (r
 
   try {
     // Generate new UUID deployment records
-    const deploymentId = `dep-${Date.now()}`;
+    const deploymentId = require("crypto").randomUUID();
     const zipKey = `deployments/${appId}/${deploymentId}_source.zip`;
 
     // 1. Upload ZIP to Backblaze B2
