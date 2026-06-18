@@ -269,8 +269,8 @@
           throw new Error("Impossible de récupérer les applications.");
         }
 
-        const apps = await response.json();
-        renderStatsAndApps(apps);
+        const data = await response.json();
+        renderStatsAndApps(data.apps || []);
       } catch (err) {
         console.error(err.message);
       }
