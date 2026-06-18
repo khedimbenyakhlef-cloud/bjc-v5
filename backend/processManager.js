@@ -171,7 +171,7 @@ function executeSpawn(slug) {
         setTimeout(() => {
           if (processes.has(meta.slug) && meta.status === "error") {
             meta.startedAt = new Date();
-            executeSpawn(meta.slug).catch(err => {
+            Promise.resolve(executeSpawn(meta.slug)).catch(err => {
               addLog(`[SYSTEM] Auto-restart initialization failed: ${err.message}`);
             });
           }

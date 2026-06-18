@@ -1,4 +1,5 @@
 const { execSync } = require("child_process");
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const fs = require("fs");
 const path = require("path");
 const b2Storage = require("./b2Storage");
