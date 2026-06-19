@@ -893,6 +893,12 @@ app.post("/api/ai/chat", authenticateJWT, chatSecureGateway);
 app.post("/api/ai/analyze-logs", authenticateJWT, (req, res) => {
   aiController.analyzeLogs(req, res);
 });
+app.post("/api/ai/repair-project", authenticateJWT, (req, res) => {
+  aiController.repairProject(req, res);
+});
+app.post("/api/ai/apply-repair", authenticateJWT, (req, res) => {
+  aiController.applyRepair(req, res);
+});
 
 function suggestSecureGateway(req, res) {
   aiController.suggest(req, res);

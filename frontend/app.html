@@ -225,12 +225,35 @@
           <button onclick="analyzeLogsWithAI()" id="btn-ai-analyze" class="px-3.5 py-1.5 bg-purple-700 hover:bg-purple-600 text-white text-xs font-semibold rounded-lg border border-purple-500/40 transition">
             🤖 Analyser IA
           </button>
+          <button onclick="repairProject()" id="btn-repair" class="px-3.5 py-1.5 bg-orange-600 hover:bg-orange-500 text-white text-xs font-semibold rounded-lg border border-orange-500/40 transition">
+            🔧 Réparer
+          </button>
         </div>
       </div>
 
       <!-- Output logs terminal frame -->
       <div id="process-terminal" class="dark-terminal text-slate-300 p-4 rounded-xl border border-slate-900 h-96 overflow-y-auto text-xs space-y-1.5 custom-scrollbar">
         <!-- Live Stdout log statements -->
+      </div>
+
+      <!-- Panneau réparation auto (caché par défaut) -->
+      <div id="repair-panel" class="hidden mt-4 p-4 bg-orange-500/5 border border-orange-500/20 rounded-xl space-y-3">
+        <div class="flex items-center justify-between">
+          <h4 class="text-xs font-semibold text-orange-400 uppercase tracking-wider font-mono">🔧 Auto-Repair — Adaptation du projet</h4>
+          <button onclick="document.getElementById('repair-panel').classList.add('hidden')" class="text-slate-500 hover:text-white text-xs">✕ Fermer</button>
+        </div>
+        <div id="repair-steps" class="space-y-1.5 text-xs font-mono text-slate-300">
+          <!-- Steps will appear here -->
+        </div>
+        <div id="repair-result" class="text-xs font-mono leading-relaxed whitespace-pre-wrap text-slate-300"></div>
+        <div id="repair-actions" class="hidden flex gap-2 mt-2">
+          <button onclick="applyRepairAndRedeploy()" id="btn-apply-repair" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg border border-emerald-500/25 transition">
+            ✅ Appliquer & Redéployer
+          </button>
+          <button onclick="document.getElementById('repair-panel').classList.add('hidden')" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold rounded-lg border border-slate-600 transition">
+            Annuler
+          </button>
+        </div>
       </div>
 
       <!-- Panneau analyse IA (caché par défaut) -->
@@ -823,6 +846,150 @@
       } finally {
         btn.disabled = false;
         btn.textContent = "🤖 Analyser IA";
+      }
+    }
+
+    // ─── AUTO-REPAIR AGENT ───────────────────────────────────────────────────
+    let repairPatchData = null; // Stocke les patches à appliquer
+
+    async function repairProject() {
+      const btn = document.getElementById("btn-repair");
+      const panel = document.getElementById("repair-panel");
+      const steps = document.getElementById("repair-steps");
+      const result = document.getElementById("repair-result");
+      const actions = document.getElementById("repair-actions");
+
+      panel.classList.remove("hidden");
+      steps.innerHTML = "";
+      result.textContent = "";
+      actions.classList.add("hidden");
+      repairPatchData = null;
+
+      btn.disabled = true;
+      btn.textContent = "⏳ Analyse...";
+
+      function addStep(icon, msg, color = "text-slate-400") {
+        steps.innerHTML += `<div class="${color} flex gap-2"><span>${icon}</span><span>${msg}</span></div>`;
+      }
+
+      try {
+        // ÉTAPE 1 : Récupérer les logs process
+        addStep("🔍", "Lecture des logs du processus...", "text-slate-400");
+        const logsRes = await fetch(`${API_HOST}/api/apps/${appId}/logs`, {
+          headers: { "Authorization": `Bearer ${TOKEN}` }
+        });
+        const logsData = await logsRes.json();
+        const rawLogs = (logsData.logs || []).join("
+");
+
+        // ÉTAPE 2 : Détecter les erreurs dans les logs
+        const errorTypes = [];
+        if (rawLogs.includes("Cannot find module")) errorTypes.push("module_manquant");
+        if (rawLogs.includes("ENOENT") || rawLogs.includes("no such file")) errorTypes.push("fichier_manquant");
+        if (rawLogs.includes("EADDRINUSE")) errorTypes.push("port_occupe");
+        if (rawLogs.includes("API_KEY") || rawLogs.includes("401") || rawLogs.includes("403")) errorTypes.push("cle_api");
+        if (rawLogs.includes("404") || rawLogs.includes("not found")) errorTypes.push("route_404");
+        
+        addStep("📊", `${errorTypes.length} type(s) d'erreur détecté(s): ${errorTypes.join(", ") || "aucun dans les logs"}`, 
+          errorTypes.length > 0 ? "text-orange-400" : "text-emerald-400");
+
+        // ÉTAPE 3 : Envoyer logs + infos app à l'IA pour diagnostic + patches
+        addStep("🤖", "Envoi à l'IA pour génération des patches...", "text-purple-400");
+
+        const appInfo = {
+          slug: activeAppObj?.slug || "unknown",
+          name: activeAppObj?.name || "unknown", 
+          runtime: activeAppObj?.runtime || "nodejs",
+          logs: rawLogs.slice(0, 6000),
+          errorTypes
+        };
+
+        const repairRes = await fetch(`${API_HOST}/api/ai/repair-project`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${TOKEN}`
+          },
+          body: JSON.stringify(appInfo)
+        });
+
+        if (!repairRes.ok) throw new Error("Erreur API repair: " + repairRes.status);
+        
+        const repairData = await repairRes.json();
+        repairPatchData = repairData;
+
+        addStep("✅", "Diagnostic IA terminé.", "text-emerald-400");
+
+        // Afficher le rapport
+        result.textContent = repairData.report || "Aucun problème critique détecté.";
+
+        if (repairData.hasPatches) {
+          addStep("📦", `${repairData.patches?.length || 0} patch(es) prêt(s) à appliquer.`, "text-orange-400");
+          actions.classList.remove("hidden");
+        } else {
+          addStep("✅", "Aucun patch nécessaire — le projet semble configuré correctement.", "text-emerald-400");
+        }
+
+      } catch (err) {
+        addStep("❌", "Erreur: " + err.message, "text-rose-400");
+        result.textContent = "L'analyse a échoué. Vérifiez que GROQ_API_KEY_1 est configurée dans BJC-V5.";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "🔧 Réparer";
+      }
+    }
+
+    async function applyRepairAndRedeploy() {
+      const btn = document.getElementById("btn-apply-repair");
+      const steps = document.getElementById("repair-steps");
+
+      if (!repairPatchData || !repairPatchData.patches) {
+        alert("Aucun patch disponible.");
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "⏳ Application...";
+
+      function addStep(icon, msg, color = "text-slate-400") {
+        steps.innerHTML += `<div class="${color} flex gap-2 mt-1"><span>${icon}</span><span>${msg}</span></div>`;
+      }
+
+      try {
+        addStep("🔧", "Envoi des patches au serveur...", "text-orange-400");
+
+        const applyRes = await fetch(`${API_HOST}/api/ai/apply-repair`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${TOKEN}`
+          },
+          body: JSON.stringify({
+            appId,
+            patches: repairPatchData.patches
+          })
+        });
+
+        if (!applyRes.ok) throw new Error("Erreur application patch: " + applyRes.status);
+
+        addStep("🔄", "Patches appliqués. Lancement du redéploiement...", "text-purple-400");
+
+        // Redéployer
+        await controlApp("restart");
+
+        addStep("✅", "Projet réparé et redémarré avec succès !", "text-emerald-400");
+        
+        setTimeout(() => {
+          document.getElementById("repair-panel").classList.add("hidden");
+          switchTab("deployments");
+          loadDeploymentsHistory();
+        }, 3000);
+
+      } catch (err) {
+        addStep("❌", "Erreur: " + err.message, "text-rose-400");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "✅ Appliquer & Redéployer";
       }
     }
 

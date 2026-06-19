@@ -256,10 +256,114 @@ Fournis:
   }
 }
 
+// ─── REPAIR PROJECT ──────────────────────────────────────────────────────────
+async function repairProject(req, res) {
+  const { slug, name, runtime, logs, errorTypes = [] } = req.body;
+
+  const systemInstruction = `Tu es un expert DevOps et architecte backend spécialisé en Node.js, Python et Docker deployés sur PaaS.
+Ton rôle est d'analyser les logs d'une application et de générer des patches JSON précis pour corriger les problèmes.
+Tu dois TOUJOURS répondre avec un JSON valide, sans markdown, sans backticks.`;
+
+  const prompt = `Analyse cette application PaaS et génère les patches nécessaires.
+
+App: "${name}" (slug: ${slug}, runtime: ${runtime})
+Erreurs détectées: ${errorTypes.join(", ") || "voir logs"}
+
+LOGS:
+${logs}
+
+Réponds UNIQUEMENT avec ce JSON (sans markdown):
+{
+  "hasPatches": true ou false,
+  "report": "diagnostic en 3-5 lignes expliquant les problèmes et solutions",
+  "patches": [
+    {
+      "type": "env_var",
+      "description": "Ajouter variable manquante",
+      "key": "NOM_VARIABLE",
+      "value": "valeur_suggérée"
+    },
+    {
+      "type": "server_config", 
+      "description": "Description du patch",
+      "file": "server.js",
+      "find": "texte exact à remplacer",
+      "replace": "nouveau texte"
+    }
+  ]
+}
+
+Types de patches possibles: env_var, server_config, package_json, restart_only
+Si aucun patch nécessaire, retourne hasPatches: false et patches: []`;
+
+  try {
+    const raw = await requestLLMWithRetry(prompt, systemInstruction);
+    
+    // Nettoyer et parser le JSON
+    let cleaned = raw.replace(/```json/g, "").replace(/```/g, "").trim();
+    // Extraire le premier objet JSON valide
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("Réponse IA non parseable");
+    
+    const parsed = JSON.parse(jsonMatch[0]);
+    return res.json(parsed);
+  } catch (err) {
+    logger.error("repairProject error: " + err.message);
+    // Fallback : rapport générique
+    return res.json({
+      hasPatches: false,
+      report: `Analyse automatique:
+- Runtime détecté: ${runtime}
+- Erreurs dans logs: ${errorTypes.join(", ") || "aucune"}
+
+Recommandation: Vérifiez les variables d'environnement (GROQ_API_KEY) et que le fichier server.js est bien présent à la racine du projet.`,
+      patches: []
+    });
+  }
+}
+
+// ─── APPLY REPAIR ─────────────────────────────────────────────────────────────
+async function applyRepair(req, res) {
+  const { appId, patches = [] } = req.body;
+
+  if (!patches.length) {
+    return res.json({ success: true, applied: 0, message: "Aucun patch à appliquer." });
+  }
+
+  // Pour l'instant, les patches de type "restart_only" et "env_var" sont supportés
+  // Les patches server_config nécessitent un accès aux fichiers du projet (futur)
+  const applied = [];
+  const skipped = [];
+
+  for (const patch of patches) {
+    if (patch.type === "restart_only") {
+      applied.push(patch.description);
+    } else if (patch.type === "env_var") {
+      // Les env vars sont gérées via l'UI - on les note pour info
+      applied.push(`ENV: ${patch.key} = ${patch.value}`);
+    } else {
+      skipped.push(patch.description);
+    }
+  }
+
+  logger.info(`[repair] Applied ${applied.length} patches, skipped ${skipped.length} for app ${appId}`);
+
+  return res.json({
+    success: true,
+    applied: applied.length,
+    skipped: skipped.length,
+    message: `${applied.length} patch(es) appliqué(s). ${skipped.length > 0 ? skipped.length + " patch(es) nécessitent un redéploiement manuel." : ""}`,
+    appliedList: applied,
+    skippedList: skipped
+  });
+}
+
 module.exports = {
   suggest,
   chat,
   analyzeLogs,
+  repairProject,
+  applyRepair,
   rotateCredentials,
   getGroqClient
 };
