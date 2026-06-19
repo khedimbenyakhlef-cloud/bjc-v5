@@ -879,8 +879,7 @@
           headers: { "Authorization": `Bearer ${TOKEN}` }
         });
         const logsData = await logsRes.json();
-        const rawLogs = (logsData.logs || []).join("
-");
+        const rawLogs = (logsData.logs || []).join("\n");
 
         // ÉTAPE 2 : Détecter les erreurs dans les logs
         const errorTypes = [];
