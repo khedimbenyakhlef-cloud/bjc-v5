@@ -127,6 +127,13 @@ router.all("/site/:slug/*", async (req, res) => {
   await handleAppRequest(req, res, slug);
 });
 
+// Fix: intercept /site/:slug (without trailing path) for SPA root
+router.all("/site/:slug", async (req, res) => {
+  const { slug } = req.params;
+  req._bjcPath = "index.html";
+  await handleAppRequest(req, res, slug);
+});
+
 router.all("/apps/:slug", async (req, res) => {
   const { slug } = req.params;
   req._bjcPath = "index.html";

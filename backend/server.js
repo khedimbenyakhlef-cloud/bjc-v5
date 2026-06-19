@@ -890,6 +890,9 @@ app.get("/api/apps/:id/logs", authenticateJWT, async (req, res) => {
 // AI COPILOT ROUTINGS
 app.post("/api/ai/suggest", authenticateJWT, suggestSecureGateway);
 app.post("/api/ai/chat", authenticateJWT, chatSecureGateway);
+app.post("/api/ai/analyze-logs", authenticateJWT, (req, res) => {
+  aiController.analyzeLogs(req, res);
+});
 
 function suggestSecureGateway(req, res) {
   aiController.suggest(req, res);

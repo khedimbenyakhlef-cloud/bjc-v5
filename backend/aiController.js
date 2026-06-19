@@ -211,9 +211,55 @@ function simulateCompletion(prompt, systemInstruction) {
   }
 }
 
+// ─── ANALYZE LOGS ────────────────────────────────────────────────────────────
+async function analyzeLogs(req, res) {
+  const { logs, appName, runtime } = req.body;
+  
+  if (!logs) {
+    return res.status(400).json({ error: "Logs manquants." });
+  }
+
+  const systemInstruction = `Tu es un expert DevOps et développeur senior spécialisé en Node.js, Python et Docker.
+Ton rôle est d'analyser les logs d'une application déployée sur un PaaS et de:
+1. Identifier TOUTES les erreurs et leur cause racine
+2. Compter le nombre d'erreurs par type
+3. Proposer des solutions concrètes et précises
+4. Indiquer si l'app fonctionne correctement ou non
+Réponds en français, de façon structurée et concise.`;
+
+  const prompt = `Analyse ces logs de l'application "${appName}" (runtime: ${runtime}):
+
+${logs}
+
+Fournis:
+- Nombre d'erreurs détectées
+- Liste des problèmes identifiés avec leur cause
+- Solutions recommandées pour chaque problème
+- Verdict final: l'app fonctionne-t-elle correctement ?`;
+
+  try {
+    const analysis = await requestLLMWithRetry(prompt, systemInstruction);
+    
+    // Parse si JSON, sinon retourner texte brut
+    let finalAnalysis;
+    try {
+      const parsed = JSON.parse(analysis);
+      finalAnalysis = parsed.reply || parsed.analysis || analysis;
+    } catch {
+      finalAnalysis = analysis;
+    }
+    
+    return res.json({ analysis: finalAnalysis });
+  } catch (err) {
+    logger.error("analyzeLogs error: " + err.message);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   suggest,
   chat,
+  analyzeLogs,
   rotateCredentials,
   getGroqClient
 };
