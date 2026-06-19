@@ -57,7 +57,8 @@ async function testConnection() {
     return false;
   }
 
-  pgClientPool = new pg.Pool({ connectionString: dbUrl });
+  pgClientPool = new pg.Pool({ connectionString: dbUrl, connectionTimeoutMillis: 8000, idleTimeoutMillis: 30000, max: 10 });
+  pgClientPool.on("error", (err) => logger.error(`Pool PostgreSQL erreur inattendue: ${err.message}`));
 
   for (let attempt = 1; attempt <= 5; attempt++) {
     try {
@@ -228,7 +229,8 @@ function connectRedis() {
   }
 
   try {
-    redisClient = new Redis(redisUrl);
+    if (!(redisUrl.startsWith("redis://") || redisUrl.startsWith("rediss://"))) { logger.warn("REDIS_URL invalide (format REST Upstash detecte au lieu de redis:// ou rediss://). Skip Redis connection."); return; }
+    redisClient = new Redis(redisUrl, { connectTimeout: 8000, retryStrategy: (times) => times > 5 ? null : Math.min(times * 1000, 5000) });
     redisClient.on("connect", () => {
       logger.info("Connected to Upstash/Generic Redis server successfully !");
     });
