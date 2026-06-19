@@ -97,7 +97,7 @@ async function runBjcDeploymentPipeline({ deploymentId, appId, slug, zipB2Key, s
     
     if (detectedRuntime === "nodejs" || detectedRuntime === "express") {
       try { execSync("npm install --production", { cwd: targetDir, stdio: "pipe" }); appendLog(deploymentId, "[npm] Installation terminee avec succes."); } catch(e) { appendLog(deploymentId, "[npm] Erreur: " + e.message); throw e; }
-      if (hasBuildScript) { try { execSync("npm run build", { cwd: targetDir, stdio: "pipe", timeout: 120000 }); appendLog(deploymentId, "[build] Build termine."); } catch(e) { appendLog(deploymentId, "[build] Erreur: " + e.message); throw e; } }
+      if (true) { try { execSync("npm run build", { cwd: targetDir, stdio: "pipe", timeout: 120000 }); appendLog(deploymentId, "[build] Build termine."); } catch(e) { appendLog(deploymentId, "[build] Erreur: " + e.message); throw e; } }
     } else if (detectedRuntime === "python") {
       appendLog(deploymentId, "⚡ Exécution de : pip install -r requirements.txt --no-cache-dir");
       appendLog(deploymentId, "[pip] Collecting fastapi (from requirements.txt)...");
