@@ -97,6 +97,7 @@ async function runBjcDeploymentPipeline({ deploymentId, appId, slug, zipB2Key, s
     
     if (detectedRuntime === "nodejs" || detectedRuntime === "express") {
       try { execSync("npm install --production", { cwd: targetDir, stdio: "pipe" }); appendLog(deploymentId, "[npm] Installation terminee avec succes."); } catch(e) { appendLog(deploymentId, "[npm] Erreur: " + e.message); throw e; }
+      const viteConfigPath = require("path").join(targetDir, "vite.config.ts"); if (require("fs").existsSync(viteConfigPath)) { let vc = require("fs").readFileSync(viteConfigPath, "utf8"); vc = vc.replace(/base:\s*['"][^'"]*['"]/g, "base: \"./\""); require("fs").writeFileSync(viteConfigPath, vc); appendLog(deploymentId, "[patch] vite.config base patched to relative path."); }
       if (true) { try { execSync("npm run build", { cwd: targetDir, stdio: "pipe", timeout: 120000 }); appendLog(deploymentId, "[build] Build termine."); } catch(e) { appendLog(deploymentId, "[build] Erreur: " + e.message); throw e; } }
     } else if (detectedRuntime === "python") {
       appendLog(deploymentId, "⚡ Exécution de : pip install -r requirements.txt --no-cache-dir");
