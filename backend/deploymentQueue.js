@@ -1,4 +1,28 @@
 const { execSync } = require("child_process");
+
+// BJC_API_BASE_SHIM : injecte automatiquement, dans index.html, un shim qui
+// prefixe tous les fetch()/XHR vers "/api/..." avec le bon prefixe /site/:slug
+// ou /apps/:slug. Resout, pour TOUS les projets futurs, le bug classique ou le
+// code source appelle fetch("/api/...") en chemin absolu sans connaitre son
+// futur prefixe de montage.
+function injectApiBaseShim(targetDir, deploymentId, appendLog) {
+  try {
+    const fsx = require("fs");
+    const pathx = require("path");
+    const candidates = [pathx.join(targetDir, "dist", "index.html"), pathx.join(targetDir, "index.html")];
+    const htmlPath = candidates.find((p) => fsx.existsSync(p));
+    if (!htmlPath) return;
+    let html = fsx.readFileSync(htmlPath, "utf8");
+    if (html.includes("BJC_API_BASE_SHIM")) return;
+    const shim = "<script>/* BJC_API_BASE_SHIM */(function(){var m=window.location.pathname.match(/^\\/(site|apps)\\/[^\\/]+/);var base=m?m[0]:\"\";if(base){var of=window.fetch;window.fetch=function(u,o){if(typeof u===\"string\"&&u.indexOf(\"/\")===0&&u.indexOf(base)!==0){u=base+u;}return of.call(this,u,o);};var oo=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(meth,u){if(typeof u===\"string\"&&u.indexOf(\"/\")===0&&u.indexOf(base)!==0){arguments[1]=base+u;}return oo.apply(this,arguments);};}})();</script>";
+    html = html.replace("<head>", "<head>" + shim);
+    fsx.writeFileSync(htmlPath, html);
+    appendLog(deploymentId, "[patch] Shim API_BASE injecte automatiquement dans index.html.");
+  } catch (e) {
+    appendLog(deploymentId, "[patch] Erreur injection shim API_BASE: " + e.message);
+  }
+}
+
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const fs = require("fs");
 const path = require("path");
@@ -100,6 +124,7 @@ async function runBjcDeploymentPipeline({ deploymentId, appId, slug, zipB2Key, s
       const viteConfigPath = require("path").join(targetDir, "vite.config.ts"); if (require("fs").existsSync(viteConfigPath)) { let vc = require("fs").readFileSync(viteConfigPath, "utf8"); vc = vc.replace(/base:\s*['"][^'"]*['"]/g, "base: \"./\""); require("fs").writeFileSync(viteConfigPath, vc); appendLog(deploymentId, "[patch] vite.config base patched to relative path."); }
       let hasBuildScriptReal = false; try { const pkgJson = JSON.parse(require("fs").readFileSync(require("path").join(targetDir, "package.json"), "utf8")); hasBuildScriptReal = !!(pkgJson.scripts && pkgJson.scripts.build); } catch(e) {}
       if (hasBuildScriptReal) { try { execSync("npm run build", { cwd: targetDir, stdio: "pipe", timeout: 120000 }); appendLog(deploymentId, "[build] Build termine."); } catch(e) { appendLog(deploymentId, "[build] Erreur: " + e.message); throw e; } }
+      injectApiBaseShim(targetDir, deploymentId, appendLog);
     } else if (detectedRuntime === "python") {
       appendLog(deploymentId, "⚡ Exécution de : pip install -r requirements.txt --no-cache-dir");
       appendLog(deploymentId, "[pip] Collecting fastapi (from requirements.txt)...");
@@ -116,6 +141,7 @@ async function runBjcDeploymentPipeline({ deploymentId, appId, slug, zipB2Key, s
     if (detectedRuntime === "static") {
       appendLog(deploymentId, "🌐 Traitement d'un site web statique : initialisation du transfert CDN...");
       const b2Prefix = `sites/${slug}/`;
+      injectApiBaseShim(targetDir, deploymentId, appendLog);
       
       // Upload folder files to Backblaze B2 bucket recursively under static prefix
       await b2Storage.uploadDirectory(targetDir, b2Prefix);
