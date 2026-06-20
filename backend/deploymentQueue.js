@@ -120,7 +120,7 @@ async function runBjcDeploymentPipeline({ deploymentId, appId, slug, zipB2Key, s
     appendLog(deploymentId, "📦 Initialisation de l'outil autonome d'installation des dépendances (Caching activé)...");
     
     if (detectedRuntime === "nodejs" || detectedRuntime === "express") {
-      try { execSync("npm install --production", { cwd: targetDir, stdio: "pipe" }); appendLog(deploymentId, "[npm] Installation terminee avec succes."); } catch(e) { appendLog(deploymentId, "[npm] Erreur: " + e.message); throw e; }
+      try { execSync("npm install --production", { cwd: targetDir, stdio: "pipe", timeout: 180000 }); appendLog(deploymentId, "[npm] Installation terminee avec succes."); } catch(e) { appendLog(deploymentId, "[npm] Erreur: " + e.message); throw e; }
       const viteConfigPath = require("path").join(targetDir, "vite.config.ts"); if (require("fs").existsSync(viteConfigPath)) { let vc = require("fs").readFileSync(viteConfigPath, "utf8"); vc = vc.replace(/base:\s*['"][^'"]*['"]/g, "base: \"./\""); require("fs").writeFileSync(viteConfigPath, vc); appendLog(deploymentId, "[patch] vite.config base patched to relative path."); }
       let hasBuildScriptReal = false; try { const pkgJson = JSON.parse(require("fs").readFileSync(require("path").join(targetDir, "package.json"), "utf8")); hasBuildScriptReal = !!(pkgJson.scripts && pkgJson.scripts.build); } catch(e) {}
       if (hasBuildScriptReal) { try { execSync("npm run build", { cwd: targetDir, stdio: "pipe", timeout: 120000 }); appendLog(deploymentId, "[build] Build termine."); } catch(e) { appendLog(deploymentId, "[build] Erreur: " + e.message); throw e; } }
