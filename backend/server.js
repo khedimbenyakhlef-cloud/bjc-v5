@@ -977,6 +977,30 @@ app.get("/api/apps/generate-job/:jobId", authenticateJWT, (req, res) => {
   aiController.getGenerationJobStatus(req, res);
 });
 
+// ─── GENERATED FILE INSPECTOR (Phase 1 — inspect avant deploy) ──────────────
+app.get("/api/apps/generated-file", authenticateJWT, async (req, res) => {
+  const { appId, file } = req.query;
+  if (!file) return res.status(400).json({ error: "Parametre 'file' manquant" });
+  // Le fichier est stocke dans /tmp/bjc-apps/<appId>/<file>
+  const appDir = path.join("/tmp/bjc-apps", appId || "");
+  const filePath = path.join(appDir, file);
+  // Securite: interdire les path traversal
+  if (!filePath.startsWith(appDir)) return res.status(400).json({ error: "Acces refuse" });
+  try {
+    const content = fs.readFileSync(filePath, "utf8");
+    res.json({ content });
+  } catch (e) {
+    // Fallback: chercher dans d'autres dossiers tmp
+    const altPath = path.join("/tmp/bjc-uploads", appId || "", file);
+    try {
+      const content = fs.readFileSync(altPath, "utf8");
+      res.json({ content });
+    } catch (_) {
+      res.status(404).json({ error: "Fichier introuvable: " + file + " (le serveur a peut-etre redémarre — free tier)" });
+    }
+  }
+});
+
 // AI COPILOT ROUTINGS
 app.post("/api/ai/suggest", authenticateJWT, suggestSecureGateway);
 app.post("/api/ai/chat", authenticateJWT, chatSecureGateway);
