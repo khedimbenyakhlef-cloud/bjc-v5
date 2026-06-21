@@ -797,13 +797,40 @@
 
       addVizStep('&#x1F680;', 'Job lance — ID: ' + jobId.slice(-8), 'text-purple-400');
 
-      var lastStage = '';
-      var lastPct = 0;
-      var deployTriggered = false;
-      var appCreatedId = null;
 
-      /* Polling du statut */
+      /* ═══════════════════════════════════════
+         POLLING — console expressive et vivante
+      ═══════════════════════════════════════ */
+      var lastStage = '';
+      var lastMsg   = '';
+      var lastPct   = 0;
+      var deployTriggered = false;
+
+      // Messages d'ambiance par stage (rotation aléatoire)
+      var STAGE_FLAVOUR = {
+        'queued':        ['&#x23F3; Job en file d'attente...', '&#x1F4E5; Transmission au moteur IA...'],
+        'analyse':       ['&#x1F50D; Lecture du prompt...', '&#x1F9E0; Compréhension de ta demande...', '&#x1F4CB; Analyse des exigences...'],
+        'base_project':  ['&#x1F4C2; Etude du projet de base fourni...', '&#x1F9E9; Décomposition de l'architecture existante...', '&#x1F4D0; Cartographie des fichiers sources...'],
+        'ia_generation': ['&#x1F916; L'IA écrit le code...', '&#x270D; Génération des fichiers en cours...', '&#x1F4BB; Construction de la logique serveur...', '&#x1F3D7; Architecture du projet...', '&#x1F9F5; Tissage des dépendances...'],
+        'parsing':       ['&#x1F9E9; Analyse de la réponse IA...', '&#x1F50E; Validation de la structure JSON...'],
+        'writing_files': ['&#x1F4BE; Ecriture sur disque...', '&#x1F528; Création des fichiers...'],
+        'deploying':     ['&#x1F680; Déploiement en cours...', '&#x26A1; Démarrage du processus...', '&#x1F310; Enregistrement de la route...'],
+        'done':          ['&#x2705; Projet généré et déployé !', '&#x1F389; Application en ligne !']
+      };
+
+      function randFlavour(stage) {
+        var arr = STAGE_FLAVOUR[stage];
+        if (!arr || !arr.length) return null;
+        return arr[Math.floor(Math.random() * arr.length)];
+      }
+
+      // Compteur pour les messages d'ambiance IA (toutes les N itérations)
+      var _pollCount = 0;
+      var _lastFlavourStage = '';
+      var _flavourInterval = 4; // toutes les 4 polls (~6s) afficher un message d'ambiance
+
       _genJobPollInterval = setInterval(async function() {
+        _pollCount++;
         try {
           var pollRes = await fetch(API_HOST + '/api/apps/generate-job/' + jobId, {
             headers: { 'Authorization': 'Bearer ' + TOKEN }
@@ -811,95 +838,157 @@
           if (!pollRes.ok) return;
           var job = await pollRes.json();
 
-          /* Mise a jour barre */
+          /* ── Progression barre ── */
           if (job.progress !== lastPct) {
             lastPct = job.progress;
             updateVizBar(job.progress, job.message, job.stage);
-          } else if (job.message !== _genLastMessage) {
-            updateVizBar(job.progress, job.message, job.stage);
           }
 
-          /* Mise a jour pipeline */
-          var isErr = job.status === 'error';
-          updatePipeline(job.stage, isErr);
+          /* ── Nouveau message backend → log dans la console ── */
+          if (job.message && job.message !== lastMsg) {
+            lastMsg = job.message;
+            // Choisir icône et couleur selon contenu
+            var icon  = '&#x25B6;';
+            var color = 'text-slate-400';
+            var msg   = job.message;
 
-          /* Nouveau stage -> nouvelle etape */
+            if (msg.includes('Fichier ecrit:') || msg.includes('fichier')) {
+              icon = '&#x1F4C4;'; color = 'text-cyan-400';
+              msg  = msg.replace('Fichier ecrit: ', '&#x1F4C4; ');
+            } else if (msg.includes('Erreur') || msg.includes('erreur') || msg.includes('echec')) {
+              icon = '&#x274C;'; color = 'text-rose-400';
+            } else if (msg.includes('succes') || msg.includes('creee') || msg.includes('deploye')) {
+              icon = '&#x2705;'; color = 'text-emerald-400';
+            } else if (msg.includes('IA') || msg.includes('generation') || msg.includes('code')) {
+              icon = '&#x1F916;'; color = 'text-purple-400';
+            } else if (msg.includes('ZIP') || msg.includes('archive') || msg.includes('base')) {
+              icon = '&#x1F4C2;'; color = 'text-yellow-400';
+            } else if (msg.includes('npm') || msg.includes('package') || msg.includes('install')) {
+              icon = '&#x1F4E6;'; color = 'text-orange-400';
+            } else if (msg.includes('Demarrage') || msg.includes('processus') || msg.includes('route')) {
+              icon = '&#x1F680;'; color = 'text-blue-400';
+            }
+            addVizStep(icon, msg, color);
+          }
+
+          /* ── Nouveau stage → titre visuel + message d'ambiance ── */
           if (job.stage !== lastStage) {
             lastStage = job.stage;
-            var icons = { 'analyse':'&#x1F50D;', 'base_project':'&#x1F4C2;', 'ia_generation':'&#x1F916;', 'parsing':'&#x1F9E9;', 'writing_files':'&#x1F4BE;', 'deploying':'&#x1F680;', 'done':'&#x2705;' };
-            var colors = { 'ia_generation':'text-purple-400', 'writing_files':'text-orange-400', 'deploying':'text-blue-400', 'done':'text-emerald-400', 'error':'text-rose-400' };
-            addVizStep(icons[job.stage] || '&#x25B6;', STAGE_LABELS[job.stage] || job.stage, colors[job.stage] || 'text-slate-400');
+            _lastFlavourStage = job.stage;
+            _pollCount = 0; // reset compteur d'ambiance au changement de stage
+
+            var stageColors = {
+              'analyse':       'text-blue-300',
+              'base_project':  'text-yellow-300',
+              'ia_generation': 'text-purple-300',
+              'parsing':       'text-indigo-300',
+              'writing_files': 'text-cyan-300',
+              'deploying':     'text-blue-300',
+              'done':          'text-emerald-300',
+              'error':         'text-rose-300'
+            };
+            var stageIcons = {
+              'analyse':       '&#x1F50D;',
+              'base_project':  '&#x1F4C2;',
+              'ia_generation': '&#x1F916;',
+              'parsing':       '&#x1F9E9;',
+              'writing_files': '&#x1F4BE;',
+              'deploying':     '&#x1F680;',
+              'done':          '&#x2705;',
+              'error':         '&#x274C;'
+            };
+            addVizStep(
+              (stageIcons[job.stage] || '&#x25B6;'),
+              '── ' + (STAGE_LABELS[job.stage] || job.stage).toUpperCase() + ' ──',
+              (stageColors[job.stage] || 'text-slate-300') + ' font-bold'
+            );
+            updatePipeline(job.stage, false);
+
+          } else if (job.stage === 'ia_generation' && _pollCount % _flavourInterval === 0) {
+            /* Pendant la génération IA (la plus longue), afficher des messages vivants */
+            var flavour = randFlavour('ia_generation');
+            if (flavour) addVizStep('&#x1F4A1;', flavour.replace(/&#x[0-9A-F]+; /,''), 'text-purple-500/80 italic');
           }
 
-          /* Ecriture fichier -> afficher badge */
+          /* ── Mise à jour pipeline ── */
+          updatePipeline(job.stage, job.status === 'error');
+
+          /* ── Badges fichiers ── */
           if (job.stage === 'writing_files' && job.message && job.message.startsWith('Fichier ecrit:')) {
             var fname = job.message.replace('Fichier ecrit: ', '');
             var filesBlock = document.getElementById('gen-viz-files-block');
-            var filesEl = document.getElementById('gen-viz-files');
+            var filesEl    = document.getElementById('gen-viz-files');
             if (filesEl) {
               filesBlock.classList.remove('hidden');
               var badge = document.createElement('span');
-              badge.className = 'px-2 py-0.5 bg-slate-800 text-slate-300 text-xs rounded font-mono border border-slate-700';
+              badge.className = 'px-2 py-0.5 bg-slate-800 text-cyan-300 text-xs rounded font-mono border border-slate-700';
               badge.textContent = fname;
               filesEl.appendChild(badge);
             }
           }
 
-          /* Mise a jour de la pastille flottante si la modal est fermee */
+          /* ── Pastille flottante ── */
           var pillTxt = document.getElementById('gen-bg-pill-text');
-          if (pillTxt) pillTxt.textContent = '\u26A1 ' + job.progress + '% - ' + (STAGE_LABELS[job.stage] || job.stage);
+          if (pillTxt) pillTxt.textContent = '\u26A1 ' + job.progress + '% — ' + (STAGE_LABELS[job.stage] || job.stage);
 
-          /* ── JOB TERMINE (le serveur a deja cree + demarre l'app) ── */
+          /* ══ JOB TERMINE ══ */
           if (job.status === 'done' && !deployTriggered) {
             deployTriggered = true;
-            clearInterval(_genJobPollInterval);
-            _genJobPollInterval = null;
-            _genActiveJobId = null;
+            clearInterval(_genJobPollInterval); _genJobPollInterval = null; _genActiveJobId = null;
             var res = job.result || {};
 
-            addVizStep('&#x1F4E6;', 'Fichiers: ' + (res.files || []).join(', '), 'text-slate-400');
+            if (res.files && res.files.length) {
+              addVizStep('&#x1F4CB;', res.files.length + ' fichier(s): ' + res.files.join(', '), 'text-slate-400');
+            }
 
             if (res.deployed) {
-              updateVizBar(100, 'Projet deploye avec succes !', 'done');
-              var dot2 = document.getElementById('gen-live-dot'); if (dot2) { dot2.style.background = '#34d399'; dot2.style.boxShadow = '0 0 6px #34d399'; }
-            var sb = document.getElementById('gen-status-badge'); if (sb) { sb.textContent = 'Termine !'; sb.className = 'px-2.5 py-0.5 rounded-full text-xs font-mono border text-emerald-300 border-emerald-700/60 bg-emerald-950/40'; }
-            addVizStep('&#x2705;', 'App creee et demarree (runtime: ' + (res.runtime || 'nodejs') + ')', 'text-emerald-400');
-              addVizStep('&#x1F310;', 'URL: ' + API_HOST + (res.url || ('/site/' + res.slug)), 'text-purple-400');
-              if (pillTxt) pillTxt.textContent = '\u2705 Termine !';
+              updateVizBar(100, 'Application déployée avec succès !', 'done');
+              var dot2 = document.getElementById('gen-live-dot');
+              if (dot2) { dot2.style.background = '#34d399'; dot2.style.boxShadow = '0 0 8px #34d399'; }
+              var sb = document.getElementById('gen-status-badge');
+              if (sb) { sb.textContent = '✅ Terminé !'; sb.className = 'px-2.5 py-0.5 rounded-full text-xs font-mono border text-emerald-300 border-emerald-700/60 bg-emerald-950/40'; }
+              addVizStep('&#x1F310;', 'URL: ' + API_HOST + (res.url || ('/site/' + res.slug)), 'text-purple-400 underline');
+              addVizStep('&#x1F389;', 'PROJET GENERE ET DEPLOYE AVEC SUCCES !', 'text-emerald-400 font-bold');
             } else {
-              updateVizBar(100, 'Code genere, demarrage a verifier', 'done');
-              addVizStep('&#x26A0;&#xFE0F;', res.deployError ? ('Demarrage en echec: ' + res.deployError) : 'App non deployee automatiquement — verifiez l onglet Apps.', 'text-orange-400');
-              if (pillTxt) pillTxt.textContent = '\u26A0\uFE0F Verification requise';
+              updateVizBar(100, 'Code généré — vérification du démarrage...', 'done');
+              addVizStep('&#x26A0;&#xFE0F;', res.deployError || 'Démarrage non confirmé — vérifiez l'onglet Apps.', 'text-orange-400');
             }
             updatePipeline('done', false);
-
-            document.getElementById('btn-gen-close').textContent = 'Fermer et voir le dashboard';
-            document.getElementById('btn-gen-close').onclick = function() {
-              closeGenerateAIModal(true);
-              if (typeof loadApps === 'function') loadApps();
-            };
+            var closeBtn = document.getElementById('btn-gen-close');
+            if (closeBtn) {
+              closeBtn.textContent = '&#x1F4CA; Fermer et voir le dashboard';
+              closeBtn.onclick = function() { closeGenerateAIModal(true); if (typeof loadApps === 'function') loadApps(); };
+            }
           }
 
-          /* ── ERREUR ── */
+          /* ══ ERREUR ══ */
           if (job.status === 'error') {
-            clearInterval(_genJobPollInterval);
-            _genJobPollInterval = null;
-            _genActiveJobId = null;
-            if (pillTxt) pillTxt.textContent = '\u274C Erreur de generation';
-            addVizStep('&#x274C;', 'Erreur: ' + (job.error || job.message), 'text-rose-400');
-            updateVizBar(job.progress, 'Echec: ' + (job.message || job.error), job.stage);
+            clearInterval(_genJobPollInterval); _genJobPollInterval = null; _genActiveJobId = null;
+            var errMsg = job.error || job.message || 'Erreur inconnue';
+            addVizStep('&#x274C;', 'ERREUR: ' + errMsg, 'text-rose-400 font-bold');
+            updateVizBar(job.progress, 'Echec — ' + errMsg, job.stage);
             updatePipeline(job.stage, true);
-            document.getElementById('btn-gen-close').textContent = 'Retour';
-            document.getElementById('btn-gen-close').onclick = function() {
-              document.getElementById('gen-ai-visualization').classList.add('hidden');
-              document.getElementById('gen-ai-form').classList.remove('hidden');
-              var b = document.getElementById('btn-generate-ai-launch');
-              b.disabled = false; b.textContent = 'Generer et Deployer';
-            };
+            var dot3 = document.getElementById('gen-live-dot');
+            if (dot3) { dot3.style.background = '#f87171'; dot3.style.boxShadow = '0 0 8px #f87171'; }
+            var sb2 = document.getElementById('gen-status-badge');
+            if (sb2) { sb2.textContent = '❌ Erreur'; sb2.className = 'px-2.5 py-0.5 rounded-full text-xs font-mono border text-rose-300 border-rose-700/60 bg-rose-950/40'; }
+            var closeBtn2 = document.getElementById('btn-gen-close');
+            if (closeBtn2) {
+              closeBtn2.textContent = '&#x21A9; Retour / Réessayer';
+              closeBtn2.onclick = function() {
+                document.getElementById('gen-ai-visualization').classList.add('hidden');
+                document.getElementById('gen-ai-form').classList.remove('hidden');
+                var idle = document.getElementById('gen-idle-state'); if (idle) idle.classList.remove('hidden');
+                var b = document.getElementById('btn-generate-ai-launch');
+                b.disabled = false; b.textContent = '&#x2728; Generer & Deployer';
+              };
+            }
           }
 
-        } catch(err) { /* poll error, on continue */ }
-      }, 1500);
+        } catch(pollErr) {
+          addVizStep('&#x26A0;&#xFE0F;', 'Poll interrompu: ' + pollErr.message, 'text-slate-600 text-xs');
+        }
+      }, 1200);
 
     } catch(err) {
       addVizStep('&#x274C;', 'Erreur lancement: ' + err.message, 'text-rose-400');
