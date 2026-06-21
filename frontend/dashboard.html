@@ -65,7 +65,7 @@
   <main class="flex-1 max-w-6xl w-full mx-auto px-6 py-8 space-y-8">
     
     <!-- Hero Header Block -->
-    <div class="flex justify-between items-end">
+    <div class="flex justify-between items-end gap-3">
       <div>
         <h2 class="text-2xl font-bold tracking-tight text-white">Espace de contrôle</h2>
         <p class="text-xs text-slate-400 mt-1.5">Gérez vos architectures d'exécution et vos pipelines de micro-services.</p>
@@ -76,7 +76,7 @@
         </svg>
         Nouveau Service
       </button>
-      <button onclick="openGenerateAIModal()" class="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold rounded-xl border border-purple-500/30 transition flex items-center gap-2 shadow-lg shadow-purple-950/20">
+      <button onclick="openGenerateAIModal()" class="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold rounded-xl border border-purple-500/30 transition flex items-center gap-2 shadow-lg shadow-purple-950/20 relative z-10" style="pointer-events:auto;cursor:pointer;">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"></path>
         </svg>
@@ -635,7 +635,7 @@
     if (!pill) {
       pill = document.createElement('div');
       pill.id = 'gen-bg-pill';
-      pill.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:60;background:#7c3aed;color:#fff;padding:10px 16px;border-radius:999px;font-size:12px;font-family:monospace;cursor:pointer;box-shadow:0 8px 24px rgba(124,58,237,.45);display:flex;align-items:center;gap:8px;';
+      pill.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:30;background:#7c3aed;color:#fff;padding:10px 16px;border-radius:999px;font-size:12px;font-family:monospace;cursor:pointer;box-shadow:0 8px 24px rgba(124,58,237,.45);display:flex;align-items:center;gap:8px;';
       pill.innerHTML = '<span id="gen-bg-pill-text">&#x1F680; Generation en cours...</span>';
       pill.onclick = function() { openGenerateAIModal(); document.getElementById('gen-ai-form').classList.add('hidden'); document.getElementById('gen-ai-visualization').classList.remove('hidden'); };
       document.body.appendChild(pill);
