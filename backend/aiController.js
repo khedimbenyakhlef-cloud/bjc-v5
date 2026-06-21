@@ -506,6 +506,181 @@ RÈGLES:
 }
 
 // ─── ADAPT PROJECT ────────────────────────────────────────────────────────────
+const generationJobs = new Map();
+
+function createGenerationJob() {
+  const jobId = "gen_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+  generationJobs.set(jobId, {
+    status: "pending",
+    progress: 0,
+    stage: "queued",
+    message: "En attente...",
+    result: null,
+    error: null,
+    createdAt: Date.now()
+  });
+  setTimeout(function() { generationJobs.delete(jobId); }, 30 * 60 * 1000);
+  return jobId;
+}
+
+function updateGenerationJob(jobId, patch) {
+  const job = generationJobs.get(jobId);
+  if (!job) return;
+  Object.assign(job, patch);
+}
+
+async function generateWithExtendedBudget(prompt, systemInstruction, opts) {
+  opts = opts || {};
+  const maxTokens = opts.maxTokens || 4096;
+  const timeoutMs = opts.timeoutMs || 120000;
+  let attempts = 0;
+  const maxAttempts = Math.max(GROQ_KEYS.length, 2);
+
+  while (attempts < maxAttempts) {
+    attempts++;
+    const client = getGroqClient();
+    if (!client) return simulateCompletion(prompt, systemInstruction);
+    try {
+      const activeModel = MODELS[modelIndex];
+      const chatCompletion = await client.chat.completions.create(
+        {
+          messages: [
+            { role: "system", content: systemInstruction },
+            { role: "user", content: prompt }
+          ],
+          model: activeModel,
+          temperature: 0.3,
+          max_tokens: maxTokens
+        },
+        { timeout: timeoutMs }
+      );
+      return chatCompletion.choices[0]?.message?.content || "";
+    } catch (err) {
+      logger.error("[generateWithExtendedBudget] error: " + err.message);
+      rotateCredentials();
+      if (attempts >= maxAttempts) throw err;
+    }
+  }
+  throw new Error("Echec apres plusieurs tentatives.");
+}
+
+async function startGenerateProjectJob(req, res) {
+  const jobId = createGenerationJob();
+  res.json({ jobId: jobId });
+  runGenerateProjectJob(jobId, req.body).catch(function(err) {
+    updateGenerationJob(jobId, { status: "error", error: err.message, message: "Erreur: " + err.message });
+  });
+}
+
+async function runGenerateProjectJob(jobId, body) {
+  const prompt = body.prompt;
+  const projectName = body.projectName;
+  const runtime = body.runtime || "nodejs";
+  const baseProjectFiles = body.baseProjectFiles || {};
+
+  updateGenerationJob(jobId, { status: "running", stage: "analyse", progress: 10, message: "Analyse du prompt..." });
+
+  const baseFileNames = Object.keys(baseProjectFiles);
+  let baseSummary = "";
+  if (baseFileNames.length > 0) {
+    updateGenerationJob(jobId, { stage: "base_project", progress: 20, message: baseFileNames.length + " fichier(s) de base en cours d'etude..." });
+    baseSummary = "\n\nPROJET DE BASE FOURNI PAR L'UTILISATEUR (a etudier et a etendre, NE PAS repartir de zero):\n";
+    let budget = 6000;
+    for (const fname of baseFileNames) {
+      const content = String(baseProjectFiles[fname] || "");
+      const slice = content.slice(0, Math.max(0, budget));
+      baseSummary += "\n--- FICHIER: " + fname + " ---\n" + slice + "\n";
+      budget -= slice.length;
+      if (budget <= 0) break;
+    }
+  } else {
+    updateGenerationJob(jobId, { stage: "base_project", progress: 20, message: "Aucun projet de base fourni, generation a partir de zero." });
+  }
+
+  const systemInstruction = "Tu es un expert developpeur full-stack. Tu generes des applications web completes et fonctionnelles en Node.js/Express. " +
+    (baseFileNames.length > 0 ? "Un projet de base est fourni: tu DOIS partir de ce code existant et l'etendre/corriger selon la demande, pas repartir de zero. " : "") +
+    "Tu reponds UNIQUEMENT avec du JSON valide contenant les fichiers du projet. Pas de markdown, pas d'explication.";
+
+  const userPrompt = "Genere une application web complete nommee \"" + (projectName || "mon-app") + "\" qui fait: " + prompt + baseSummary + "\n\n" +
+    "Reponds UNIQUEMENT avec ce JSON (sans markdown):\n" +
+    "{\n" +
+    "  \"files\": { \"server.js\": \"...\", \"package.json\": \"...\", \"public/index.html\": \"...\" },\n" +
+    "  \"startCommand\": \"node server.js\",\n" +
+    "  \"description\": \"description courte du projet genere\"\n" +
+    "}\n\n" +
+    "REGLES:\n" +
+    "- server.js DOIT ecouter sur process.env.PORT || 3000\n" +
+    "- Inclure toujours package.json et server.js\n" +
+    "- Code COMPLET et FONCTIONNEL, pas de placeholder\n" +
+    "- Interface HTML dans public/index.html avec CSS inline moderne";
+
+  updateGenerationJob(jobId, { stage: "ia_generation", progress: 35, message: "Generation du code par l'IA en cours (jusqu'a 2 minutes)..." });
+
+  let raw;
+  try {
+    raw = await generateWithExtendedBudget(userPrompt, systemInstruction, { maxTokens: 4096, timeoutMs: 120000 });
+  } catch (err) {
+    updateGenerationJob(jobId, { status: "error", stage: "ia_generation", message: "Erreur IA: " + err.message, error: err.message });
+    return;
+  }
+
+  updateGenerationJob(jobId, { stage: "parsing", progress: 65, message: "Analyse de la reponse IA..." });
+
+  const cleaned = raw.replace(/```json/g, "").replace(/```/g, "").trim();
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    updateGenerationJob(jobId, { status: "error", stage: "parsing", message: "Reponse IA non parseable.", error: "JSON non parseable" });
+    return;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch (err) {
+    updateGenerationJob(jobId, { status: "error", stage: "parsing", message: "JSON invalide: " + err.message, error: err.message });
+    return;
+  }
+
+  updateGenerationJob(jobId, { stage: "writing_files", progress: 80, message: "Ecriture des fichiers sur disque..." });
+
+  const slug = (projectName || "gen-app").toLowerCase().replace(/[^a-z0-9]/g, "-");
+  const targetDir = require("path").join("/tmp/bjc-apps", slug);
+  require("fs").mkdirSync(targetDir, { recursive: true });
+
+  const fileList = Object.keys(parsed.files || {});
+  let written = 0;
+  for (const [filePath, content] of Object.entries(parsed.files || {})) {
+    const fullPath = require("path").join(targetDir, filePath);
+    require("fs").mkdirSync(require("path").dirname(fullPath), { recursive: true });
+    require("fs").writeFileSync(fullPath, content, "utf-8");
+    written++;
+    updateGenerationJob(jobId, { progress: 80 + Math.round((written / Math.max(fileList.length, 1)) * 15), message: "Fichier ecrit: " + filePath });
+  }
+
+  logger.info("[generate-job] Project '" + slug + "' generated with " + fileList.length + " files (job " + jobId + ")");
+
+  updateGenerationJob(jobId, {
+    status: "done",
+    stage: "done",
+    progress: 100,
+    message: "Projet genere avec succes !",
+    result: {
+      success: true,
+      slug: slug,
+      files: fileList,
+      startCommand: parsed.startCommand || "node server.js",
+      description: parsed.description || "",
+      targetDir: targetDir
+    }
+  });
+}
+
+function getGenerationJobStatus(req, res) {
+  const job = generationJobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: "Job introuvable ou expire." });
+  res.json(job);
+}
+
 async function adaptProject(req, res) {
   const { slug, name, runtime, startCommand, logs, existingEnvKeys = [], customInstructions = "" } = req.body;
 
@@ -564,3 +739,7 @@ module.exports = {
   rotateCredentials,
   getGroqClient
 };
+
+
+module.exports.startGenerateProjectJob = startGenerateProjectJob;
+module.exports.getGenerationJobStatus = getGenerationJobStatus;
