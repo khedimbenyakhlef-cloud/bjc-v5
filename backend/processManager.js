@@ -82,9 +82,65 @@ async function startProcess({ appId, slug, runtime, startCommand, envVars = {}, 
   return executeSpawn(slug);
 }
 
+function autoFixMissingEntry(appDir, slug) {
+  // Si server.js absent, chercher le vrai fichier d'entrée et créer un wrapper
+  const serverJs = path.join(appDir, "server.js");
+  if (fs.existsSync(serverJs)) return; // Déjà là, rien à faire
+
+  // Chercher un fichier d'entrée alternatif
+  const candidates = ["app.js", "index.js", "main.js", "src/index.js", "src/app.js", "src/server.js", "dist/index.js"];
+  let found = null;
+  for (const c of candidates) {
+    if (fs.existsSync(path.join(appDir, c))) {
+      found = c;
+      break;
+    }
+  }
+
+  if (found) {
+    // Créer un server.js wrapper qui pointe vers le vrai fichier
+    const wrapper = `// Auto-generated wrapper by BJC-V5
+require('./${found}');
+`;
+    fs.writeFileSync(serverJs, wrapper, "utf-8");
+    logger.info(`[autofix] Created server.js wrapper -> ${found} for slug '${slug}'`);
+    return;
+  }
+
+  // Chercher n'importe quel .js à la racine
+  try {
+    const files = fs.readdirSync(appDir).filter(f => f.endsWith(".js") && !f.includes("webpack") && !f.includes("config"));
+    if (files.length > 0) {
+      const wrapper = `// Auto-generated wrapper by BJC-V5
+require('./${files[0]}');
+`;
+      fs.writeFileSync(serverJs, wrapper, "utf-8");
+      logger.info(`[autofix] Created server.js wrapper -> ${files[0]} for slug '${slug}'`);
+      return;
+    }
+  } catch (_) {}
+
+  // Créer un server.js minimal Express si vraiment rien trouvé
+  const minimal = `const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+app.use(express.static('public'));
+app.use(express.static('dist'));
+app.get('/', (req, res) => res.send('<h1>${slug} - BJC-V5</h1><p>App deployed. Add your code.</p>'));
+app.listen(PORT, () => console.log('BJC app listening on port ' + PORT));
+`;
+  fs.writeFileSync(serverJs, minimal, "utf-8");
+  logger.info(`[autofix] Created minimal Express server.js for slug '${slug}'`);
+}
+
 function executeSpawn(slug) {
   const meta = processes.get(slug);
   if (!meta) throw new Error(`Process metadata missing for slug: ${slug}`);
+
+  // AUTO-FIX: créer server.js si manquant avant de lancer
+  if (meta.runtime === "nodejs" || meta.runtime === "express" || !meta.runtime) {
+    autoFixMissingEntry(meta.appDir, slug);
+  }
 
   // Auto-detect entry paths or fallback commands
   let cmd = "node";

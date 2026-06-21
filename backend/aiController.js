@@ -441,6 +441,70 @@ async function applyRepair(req, res) {
 let pgClientPool = null;
 function setDbPool(pool) { pgClientPool = pool; }
 
+// ─── GENERATE PROJECT FROM PROMPT ────────────────────────────────────────────
+async function generateProject(req, res) {
+  const { prompt, projectName, runtime = "nodejs" } = req.body;
+
+  if (!prompt) return res.status(400).json({ error: "Prompt requis" });
+
+  const systemInstruction = `Tu es un expert développeur full-stack. Tu génères des applications web complètes et fonctionnelles en Node.js/Express.
+Tu réponds UNIQUEMENT avec du JSON valide contenant les fichiers du projet. Pas de markdown, pas d'explication.`;
+
+  const userPrompt = `Génère une application web complète nommée "${projectName || "mon-app"}" qui fait: ${prompt}
+
+Réponds UNIQUEMENT avec ce JSON (sans markdown):
+{
+  "files": {
+    "server.js": "// code complet du serveur Express\nconst express = require('express');\n...",
+    "package.json": "{\"name\": \"${projectName || "mon-app"}\", \"version\": \"1.0.0\", \"main\": \"server.js\", \"scripts\": {\"start\": \"node server.js\"}, \"dependencies\": {\"express\": \"^4.18.0\"}}",
+    "public/index.html": "<!DOCTYPE html>..."
+  },
+  "startCommand": "node server.js",
+  "description": "description courte du projet généré"
+}
+
+RÈGLES:
+- server.js DOIT écouter sur process.env.PORT || 3000
+- Inclure toujours package.json et server.js
+- Code COMPLET et FONCTIONNEL, pas de placeholder
+- Interface HTML dans public/index.html avec CSS inline moderne`;
+
+  try {
+    const raw = await requestLLMWithRetry(userPrompt, systemInstruction);
+    const cleaned = raw.replace(/```json/g, "").replace(/```/g, "").trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("JSON non parseable");
+
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    // Écrire les fichiers dans /tmp/bjc-apps/:slug/
+    const slug = (projectName || "gen-app").toLowerCase().replace(/[^a-z0-9]/g, "-");
+    const targetDir = require("path").join("/tmp/bjc-apps", slug);
+    require("fs").mkdirSync(targetDir, { recursive: true });
+
+    for (const [filePath, content] of Object.entries(parsed.files || {})) {
+      const fullPath = require("path").join(targetDir, filePath);
+      require("fs").mkdirSync(require("path").dirname(fullPath), { recursive: true });
+      require("fs").writeFileSync(fullPath, content, "utf-8");
+    }
+
+    logger.info(`[generate] Project '${slug}' generated with ${Object.keys(parsed.files || {}).length} files`);
+
+    return res.json({
+      success: true,
+      slug,
+      files: Object.keys(parsed.files || {}),
+      startCommand: parsed.startCommand || "node server.js",
+      description: parsed.description || "",
+      targetDir
+    });
+
+  } catch (err) {
+    logger.error("generateProject error: " + err.message);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
 // ─── ADAPT PROJECT ────────────────────────────────────────────────────────────
 async function adaptProject(req, res) {
   const { slug, name, runtime, startCommand, logs, existingEnvKeys = [] } = req.body;
@@ -490,6 +554,7 @@ REGLES: si logs montrent Cannot find module X -> startCommand doit pointer vers 
 module.exports = {
   suggest,
   adaptProject,
+  generateProject,
   setDbPool,
   chat,
   analyzeLogs,

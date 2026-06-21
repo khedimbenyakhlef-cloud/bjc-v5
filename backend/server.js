@@ -955,6 +955,15 @@ app.post("/api/apps/:id/adapt", authenticateJWT, async (req, res) => {
   }
 });
 
+// ─── GENERATE PROJECT FROM PROMPT ───────────────────────────────────────────
+app.post("/api/apps/generate", authenticateJWT, async (req, res) => {
+  try {
+    await aiController.generateProject(req, res);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // AI COPILOT ROUTINGS
 app.post("/api/ai/suggest", authenticateJWT, suggestSecureGateway);
 app.post("/api/ai/chat", authenticateJWT, chatSecureGateway);
