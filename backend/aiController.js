@@ -6,6 +6,8 @@ const { exec } = require("child_process");
 const util = require("util");
 const execAsync = util.promisify(exec);
 const processManager = require("./processManager");
+const AdmZip = require("adm-zip");
+const EnvVar = require("./EnvVar");
 
 const logger = winston.createLogger({
   level: "info",
@@ -564,10 +566,59 @@ async function generateWithExtendedBudget(prompt, systemInstruction, opts) {
   throw new Error("Echec apres plusieurs tentatives.");
 }
 
+// ─── DETECTION DU RUNTIME A PARTIR DU PROJET DE BASE (fichiers ou zip) ──────
+function detectRuntimeFromFiles(names, filesMap) {
+  const lower = names.map(function(n) { return n.toLowerCase(); });
+  if (lower.indexOf("requirements.txt") !== -1 || lower.some(function(n) { return n.endsWith(".py"); })) {
+    return "python";
+  }
+  if (lower.indexOf("package.json") !== -1) {
+    const pkg = String((filesMap || {})["package.json"] || "");
+    return pkg.indexOf("\"express\"") !== -1 ? "express" : "nodejs";
+  }
+  if (lower.indexOf("index.html") !== -1 && !lower.some(function(n) { return n.endsWith(".js"); })) {
+    return "static";
+  }
+  return "nodejs";
+}
+
+const BASE_PROJECT_TEXT_EXTENSIONS = [".js", ".json", ".html", ".htm", ".css", ".py", ".txt", ".ts", ".tsx", ".jsx", ".md", ".yml", ".yaml", ".env"];
+
+// ─── EXTRACTION D'UNE ARCHIVE ZIP DE PROJET DE BASE (fournie en base64) ─────
+function extractBaseProjectZip(base64Data) {
+  const cleaned = String(base64Data || "").replace(/^data:.*?;base64,/, "");
+  const buffer = Buffer.from(cleaned, "base64");
+  const zip = new AdmZip(buffer);
+  const entries = zip.getEntries();
+  const files = {};
+  let budget = 60000;
+  let skippedBinary = 0;
+
+  for (const entry of entries) {
+    if (entry.isDirectory) continue;
+    const name = entry.entryName.replace(/^\/+/, "");
+    const parts = name.split("/");
+    if (parts.some(function(p) { return p === "node_modules" || p === ".git" || p === "__pycache__" || p === "venv"; })) continue;
+    const dot = name.lastIndexOf(".");
+    const ext = dot === -1 ? "" : name.slice(dot).toLowerCase();
+    if (BASE_PROJECT_TEXT_EXTENSIONS.indexOf(ext) === -1) { skippedBinary++; continue; }
+    if (budget <= 0) continue;
+    let content;
+    try { content = entry.getData().toString("utf-8"); } catch (e) { continue; }
+    content = content.slice(0, Math.max(0, budget));
+    budget -= content.length;
+    files[name] = content;
+  }
+
+  return { files: files, skippedBinary: skippedBinary, totalEntries: entries.length };
+}
+
 async function startGenerateProjectJob(req, res) {
   const jobId = createGenerationJob();
   res.json({ jobId: jobId });
-  runGenerateProjectJob(jobId, req.body).catch(function(err) {
+  const userId = req.user ? req.user.id : null;
+  const jobBody = Object.assign({}, req.body, { userId: userId });
+  runGenerateProjectJob(jobId, jobBody).catch(function(err) {
     updateGenerationJob(jobId, { status: "error", error: err.message, message: "Erreur: " + err.message });
   });
 }
@@ -575,15 +626,30 @@ async function startGenerateProjectJob(req, res) {
 async function runGenerateProjectJob(jobId, body) {
   const prompt = body.prompt;
   const projectName = body.projectName;
-  const runtime = body.runtime || "nodejs";
-  const baseProjectFiles = body.baseProjectFiles || {};
+  const userId = body.userId || null;
+  let baseProjectFiles = body.baseProjectFiles || {};
 
-  updateGenerationJob(jobId, { status: "running", stage: "analyse", progress: 10, message: "Analyse du prompt..." });
+  updateGenerationJob(jobId, { status: "running", stage: "analyse", progress: 8, message: "Analyse du prompt..." });
+
+  // ── Si une archive ZIP de projet de base a ete fournie, on l'extrait d'abord ──
+  if (body.baseProjectZip) {
+    updateGenerationJob(jobId, { stage: "base_project", progress: 14, message: "Extraction de l'archive ZIP fournie..." });
+    try {
+      const extracted = extractBaseProjectZip(body.baseProjectZip);
+      baseProjectFiles = Object.assign({}, extracted.files, baseProjectFiles);
+      updateGenerationJob(jobId, { progress: 18, message: extracted.totalEntries + " fichier(s) dans le ZIP, " + Object.keys(extracted.files).length + " retenu(s) pour analyse (" + extracted.skippedBinary + " binaire(s) ignore(s))." });
+    } catch (err) {
+      logger.error("[generate-job] extraction zip echouee: " + err.message);
+      updateGenerationJob(jobId, { progress: 18, message: "Archive ZIP illisible, generation a partir du prompt seul." });
+    }
+  }
 
   const baseFileNames = Object.keys(baseProjectFiles);
+  const detectedRuntime = baseFileNames.length > 0 ? detectRuntimeFromFiles(baseFileNames, baseProjectFiles) : (body.runtime || "nodejs");
+
   let baseSummary = "";
   if (baseFileNames.length > 0) {
-    updateGenerationJob(jobId, { stage: "base_project", progress: 20, message: baseFileNames.length + " fichier(s) de base en cours d'etude..." });
+    updateGenerationJob(jobId, { stage: "base_project", progress: 22, message: baseFileNames.length + " fichier(s) de base en cours d'etude (runtime detecte : " + detectedRuntime + ")..." });
     baseSummary = "\n\nPROJET DE BASE FOURNI PAR L'UTILISATEUR (a etudier et a etendre, NE PAS repartir de zero):\n";
     let budget = 6000;
     for (const fname of baseFileNames) {
@@ -594,25 +660,37 @@ async function runGenerateProjectJob(jobId, body) {
       if (budget <= 0) break;
     }
   } else {
-    updateGenerationJob(jobId, { stage: "base_project", progress: 20, message: "Aucun projet de base fourni, generation a partir de zero." });
+    updateGenerationJob(jobId, { stage: "base_project", progress: 22, message: "Aucun projet de base fourni, generation a partir de zero (runtime: " + detectedRuntime + ")." });
   }
 
-  const systemInstruction = "Tu es un expert developpeur full-stack. Tu generes des applications web completes et fonctionnelles en Node.js/Express. " +
+  const runtimeGuidance = detectedRuntime === "python"
+    ? "Tu generes une application Python complete (FastAPI ou Flask). Le fichier principal doit s'appeler app.py et ecouter sur 0.0.0.0 via la variable d'environnement PORT. Inclue toujours requirements.txt."
+    : detectedRuntime === "static"
+      ? "Tu generes un site statique HTML/CSS/JS pur, sans serveur backend necessaire. Le fichier principal est index.html."
+      : "Tu generes une application Node.js/Express complete. server.js DOIT ecouter sur process.env.PORT || 3000. Inclue toujours package.json et server.js.";
+
+  const exampleFiles = detectedRuntime === "python"
+    ? "{ \"app.py\": \"...\", \"requirements.txt\": \"...\" }"
+    : detectedRuntime === "static"
+      ? "{ \"index.html\": \"...\", \"style.css\": \"...\", \"script.js\": \"...\" }"
+      : "{ \"server.js\": \"...\", \"package.json\": \"...\", \"public/index.html\": \"...\" }";
+
+  const defaultStartCmd = detectedRuntime === "python" ? "python3 app.py" : detectedRuntime === "static" ? "npx serve ." : "node server.js";
+
+  const systemInstruction = "Tu es un expert developpeur full-stack. " + runtimeGuidance + " " +
     (baseFileNames.length > 0 ? "Un projet de base est fourni: tu DOIS partir de ce code existant et l'etendre/corriger selon la demande, pas repartir de zero. " : "") +
     "Tu reponds UNIQUEMENT avec du JSON valide contenant les fichiers du projet. Pas de markdown, pas d'explication.";
 
-  const userPrompt = "Genere une application web complete nommee \"" + (projectName || "mon-app") + "\" qui fait: " + prompt + baseSummary + "\n\n" +
+  const userPrompt = "Genere une application complete nommee \"" + (projectName || "mon-app") + "\" qui fait: " + prompt + baseSummary + "\n\n" +
     "Reponds UNIQUEMENT avec ce JSON (sans markdown):\n" +
     "{\n" +
-    "  \"files\": { \"server.js\": \"...\", \"package.json\": \"...\", \"public/index.html\": \"...\" },\n" +
-    "  \"startCommand\": \"node server.js\",\n" +
+    "  \"files\": " + exampleFiles + ",\n" +
+    "  \"startCommand\": \"" + defaultStartCmd + "\",\n" +
     "  \"description\": \"description courte du projet genere\"\n" +
     "}\n\n" +
     "REGLES:\n" +
-    "- server.js DOIT ecouter sur process.env.PORT || 3000\n" +
-    "- Inclure toujours package.json et server.js\n" +
     "- Code COMPLET et FONCTIONNEL, pas de placeholder\n" +
-    "- Interface HTML dans public/index.html avec CSS inline moderne";
+    "- " + runtimeGuidance;
 
   updateGenerationJob(jobId, { stage: "ia_generation", progress: 35, message: "Generation du code par l'IA en cours (jusqu'a 2 minutes)..." });
 
@@ -641,36 +719,99 @@ async function runGenerateProjectJob(jobId, body) {
     return;
   }
 
-  updateGenerationJob(jobId, { stage: "writing_files", progress: 80, message: "Ecriture des fichiers sur disque..." });
+  updateGenerationJob(jobId, { stage: "writing_files", progress: 78, message: "Ecriture des fichiers sur disque..." });
 
   const slug = (projectName || "gen-app").toLowerCase().replace(/[^a-z0-9]/g, "-");
-  const targetDir = require("path").join("/tmp/bjc-apps", slug);
-  require("fs").mkdirSync(targetDir, { recursive: true });
+  const targetDir = path.join("/tmp/bjc-apps", slug);
+  fs.mkdirSync(targetDir, { recursive: true });
 
   const fileList = Object.keys(parsed.files || {});
   let written = 0;
   for (const [filePath, content] of Object.entries(parsed.files || {})) {
-    const fullPath = require("path").join(targetDir, filePath);
-    require("fs").mkdirSync(require("path").dirname(fullPath), { recursive: true });
-    require("fs").writeFileSync(fullPath, content, "utf-8");
+    const fullPath = path.join(targetDir, filePath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content, "utf-8");
     written++;
-    updateGenerationJob(jobId, { progress: 80 + Math.round((written / Math.max(fileList.length, 1)) * 15), message: "Fichier ecrit: " + filePath });
+    updateGenerationJob(jobId, { progress: 78 + Math.round((written / Math.max(fileList.length, 1)) * 10), message: "Fichier ecrit: " + filePath });
   }
 
   logger.info("[generate-job] Project '" + slug + "' generated with " + fileList.length + " files (job " + jobId + ")");
+
+  const startCommand = parsed.startCommand || defaultStartCmd;
+  const description = parsed.description || "";
+
+  // ── A partir d'ici, tout se passe cote serveur : la creation + le demarrage de
+  // l'app continuent meme si le navigateur/l'onglet est ferme, car ce code tourne
+  // dans le process Node de BJC-V5 lui-meme (pas dans le navigateur). Cette app est
+  // isolee dans /tmp/bjc-apps/<slug> et n'a aucun acces aux projets deployes sur
+  // Render/HuggingFace/Netlify ou ailleurs : aucune chance de toucher a autre chose.
+  updateGenerationJob(jobId, { stage: "deploying", progress: 90, message: "Creation de l'app dans BJC..." });
+
+  let appId = null;
+  try {
+    if (pgClientPool) {
+      const client = await pgClientPool.connect();
+      try {
+        const queryRes = await client.query(
+          "INSERT INTO apps (name, slug, user_id, app_type, runtime, start_command, build_command, status) " +
+          "VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending') RETURNING *",
+          [projectName || slug, slug, userId, detectedRuntime === "static" ? "static" : "dynamic", detectedRuntime, startCommand, null]
+        );
+        appId = queryRes.rows[0] && queryRes.rows[0].id;
+      } finally {
+        client.release();
+      }
+    } else {
+      appId = "app-" + Date.now();
+    }
+  } catch (err) {
+    logger.error("[generate-job] creation app echouee: " + err.message);
+    updateGenerationJob(jobId, {
+      status: "done", stage: "done", progress: 100,
+      message: "Code genere mais creation de l'app impossible (" + err.message + "). Les fichiers restent disponibles dans /tmp/bjc-apps/" + slug,
+      result: { success: true, slug: slug, files: fileList, startCommand: startCommand, description: description, runtime: detectedRuntime, targetDir: targetDir, deployed: false }
+    });
+    return;
+  }
+
+  updateGenerationJob(jobId, { stage: "deploying", progress: 95, message: "Demarrage du processus..." });
+
+  let port = null;
+  let deployError = null;
+  try {
+    const decryptedEnv = appId ? await EnvVar.getPlainObject(appId) : {};
+    const info = await processManager.startProcess({
+      appId: appId,
+      slug: slug,
+      runtime: detectedRuntime,
+      startCommand: startCommand,
+      envVars: decryptedEnv,
+      appDir: targetDir
+    });
+    port = info.port;
+  } catch (err) {
+    deployError = err.message;
+    logger.error("[generate-job] demarrage app echoue: " + err.message);
+  }
 
   updateGenerationJob(jobId, {
     status: "done",
     stage: "done",
     progress: 100,
-    message: "Projet genere avec succes !",
+    message: deployError ? ("Projet genere mais demarrage en echec: " + deployError) : "Projet genere et deploye avec succes !",
     result: {
       success: true,
       slug: slug,
+      appId: appId,
       files: fileList,
-      startCommand: parsed.startCommand || "node server.js",
-      description: parsed.description || "",
-      targetDir: targetDir
+      startCommand: startCommand,
+      description: description,
+      runtime: detectedRuntime,
+      targetDir: targetDir,
+      deployed: !deployError,
+      port: port,
+      url: "/site/" + slug,
+      deployError: deployError
     }
   });
 }
@@ -710,13 +851,13 @@ REGLES: si logs montrent Cannot find module X -> startCommand doit pointer vers 
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error("JSON non parseable");
     const parsed = JSON.parse(jsonMatch[0]);
-    logger.info(`[adapt] \${name}: \${parsed.envVars?.length || 0} vars, cmd=\${parsed.startCommand}`);
+    logger.info(`[adapt] ${name}: ${parsed.envVars?.length || 0} vars, cmd=${parsed.startCommand}`);
     return res.json(parsed);
   } catch (err) {
     logger.error("adaptProject error: " + err.message);
     const fallbackCmd = runtime === "python" ? "python app.py" : runtime === "static" ? "npx serve dist" : "node server.js";
     return res.json({
-      report: `Configuration par defaut pour \${name} (runtime: \${runtime}). Verifiez les variables d environnement dans l onglet Environnement.`,
+      report: `Configuration par defaut pour ${name} (runtime: ${runtime}). Verifiez les variables d environnement dans l onglet Environnement.`,
       runtime,
       startCommand: fallbackCmd,
       envVars: [

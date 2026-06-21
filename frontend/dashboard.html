@@ -462,9 +462,9 @@
           <div id="gen-base-drop" class="border-2 border-dashed border-slate-700 rounded-lg p-4 text-center cursor-pointer hover:border-purple-500/60 transition"
                onclick="document.getElementById('gen-base-input').click()">
             <p class="text-slate-500 text-xs">Glisse des fichiers ici ou <span class="text-purple-400">clique pour selectionner</span></p>
-            <p class="text-slate-600 text-xs mt-0.5">.js .json .html .css .py .txt (max 5 fichiers)</p>
+            <p class="text-slate-600 text-xs mt-0.5">.js .json .html .css .py .txt — ou un seul fichier .zip (le zip remplace les fichiers individuels et est extrait par le serveur)</p>
           </div>
-          <input id="gen-base-input" type="file" multiple accept=".js,.json,.html,.css,.py,.txt,.ts,.md" class="hidden" onchange="handleBaseFilesSelect(event)" />
+          <input id="gen-base-input" type="file" multiple accept=".js,.json,.html,.css,.py,.txt,.ts,.md,.zip" class="hidden" onchange="handleBaseFilesSelect(event)" />
           <div id="gen-base-file-list" class="space-y-1 hidden"></div>
         </div>
 
@@ -514,10 +514,11 @@
           <div id="pip-deploy"     class="gen-pip px-2 py-1 rounded bg-slate-800 text-slate-500 whitespace-nowrap">Deploiement</div>
         </div>
 
-        <!-- Bouton annuler / retour -->
+        <!-- Bouton: passe la generation en arriere-plan (continue de tourner sur le serveur,
+             une pastille flottante permet de suivre l'avancement en travaillant ailleurs) -->
         <button onclick="closeGenerateAIModal()" id="btn-gen-close"
           class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl border border-slate-700 transition">
-          Fermer
+          &#x1F4E4; Continuer en arriere-plan
         </button>
       </div>
 
@@ -533,28 +534,69 @@
   <script>
   /* ── VARIABLES GLOBALES MODAL ── */
   var _genBaseFiles = {};
+  var _genBaseZip = null;
   var _genJobPollInterval = null;
   var _genLastMessage = "";
+  var _genActiveJobId = null;
 
   function openGenerateAIModal() {
     document.getElementById('modal-generate-ai').classList.remove('hidden');
     document.getElementById('gen-ai-form').classList.remove('hidden');
     document.getElementById('gen-ai-visualization').classList.add('hidden');
+    hideBgPill();
   }
 
-  function closeGenerateAIModal() {
+  function closeGenerateAIModal(force) {
     document.getElementById('modal-generate-ai').classList.add('hidden');
+    if (!force && _genActiveJobId && _genJobPollInterval) {
+      /* Le job continue de tourner sur le serveur : on garde juste le polling actif
+         et on affiche une pastille flottante pour pouvoir continuer a travailler. */
+      showBgPill();
+      return;
+    }
     if (_genJobPollInterval) { clearInterval(_genJobPollInterval); _genJobPollInterval = null; }
+    _genActiveJobId = null;
+    hideBgPill();
+  }
+
+  function showBgPill() {
+    var pill = document.getElementById('gen-bg-pill');
+    if (!pill) {
+      pill = document.createElement('div');
+      pill.id = 'gen-bg-pill';
+      pill.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:60;background:#7c3aed;color:#fff;padding:10px 16px;border-radius:999px;font-size:12px;font-family:monospace;cursor:pointer;box-shadow:0 8px 24px rgba(124,58,237,.45);display:flex;align-items:center;gap:8px;';
+      pill.innerHTML = '<span id="gen-bg-pill-text">&#x1F680; Generation en cours...</span>';
+      pill.onclick = function() { openGenerateAIModal(); document.getElementById('gen-ai-form').classList.add('hidden'); document.getElementById('gen-ai-visualization').classList.remove('hidden'); };
+      document.body.appendChild(pill);
+    }
+    pill.style.display = 'flex';
+  }
+  function hideBgPill() {
+    var pill = document.getElementById('gen-bg-pill');
+    if (pill) pill.style.display = 'none';
   }
 
   /* ── GESTION FICHIERS DE BASE ── */
   function handleBaseFilesSelect(evt) {
     var files = Array.from(evt.target.files).slice(0, 5);
     _genBaseFiles = {};
+    _genBaseZip = null;
     var list = document.getElementById('gen-base-file-list');
     list.innerHTML = '';
     if (files.length === 0) { list.classList.add('hidden'); return; }
     list.classList.remove('hidden');
+
+    var zipFile = files.find(function(f) { return f.name.toLowerCase().endsWith('.zip'); });
+    if (zipFile) {
+      var rz = new FileReader();
+      rz.onload = function(e) {
+        _genBaseZip = e.target.result;
+        list.innerHTML = '<div class="flex items-center gap-2 text-xs text-slate-400"><span class="text-emerald-400">&#x2713;</span><span>' + zipFile.name + ' (' + Math.round(zipFile.size/1024) + ' ko — sera extrait par le serveur)</span></div>';
+      };
+      rz.readAsDataURL(zipFile);
+      return;
+    }
+
     var readers = files.map(function(f) {
       return new Promise(function(resolve) {
         var r = new FileReader();
@@ -669,11 +711,12 @@
       var startRes = await fetch(API_HOST + '/api/apps/generate-async', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
-        body: JSON.stringify({ prompt: prompt, projectName: name, runtime: 'nodejs', baseProjectFiles: _genBaseFiles })
+        body: JSON.stringify({ prompt: prompt, projectName: name, runtime: 'nodejs', baseProjectFiles: _genBaseFiles, baseProjectZip: _genBaseZip })
       });
       if (!startRes.ok) throw new Error('Erreur demarrage job: ' + startRes.status);
       var startData = await startRes.json();
       var jobId = startData.jobId;
+      _genActiveJobId = jobId;
 
       addVizStep('&#x1F680;', 'Job lance — ID: ' + jobId.slice(-8), 'text-purple-400');
 
@@ -725,48 +768,35 @@
             }
           }
 
-          /* ── JOB TERMINE ── */
+          /* Mise a jour de la pastille flottante si la modal est fermee */
+          var pillTxt = document.getElementById('gen-bg-pill-text');
+          if (pillTxt) pillTxt.textContent = '\u26A1 ' + job.progress + '% - ' + (STAGE_LABELS[job.stage] || job.stage);
+
+          /* ── JOB TERMINE (le serveur a deja cree + demarre l'app) ── */
           if (job.status === 'done' && !deployTriggered) {
             deployTriggered = true;
             clearInterval(_genJobPollInterval);
             _genJobPollInterval = null;
+            _genActiveJobId = null;
             var res = job.result || {};
 
-            updateVizBar(100, 'Projet genere ! Deploiement en cours...', 'deploying');
-            updatePipeline('deploying', false);
             addVizStep('&#x1F4E6;', 'Fichiers: ' + (res.files || []).join(', '), 'text-slate-400');
-            addVizStep('&#x2699;&#xFE0F;', 'Creation de l app dans BJC...', 'text-orange-400');
 
-            /* Creer l app */
-            try {
-              var createRes = await fetch(API_HOST + '/api/apps', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
-                body: JSON.stringify({ name: name, slug: res.slug, runtime: 'nodejs', start_command: res.startCommand || 'node server.js', description: res.description || '' })
-              });
-              if (createRes.ok) { addVizStep('&#x2705;', 'App creee dans BJC !', 'text-emerald-400'); }
-              else { addVizStep('&#x26A0;&#xFE0F;', 'App existante — tentative de demarrage...', 'text-orange-400'); }
-            } catch(e) {}
-
-            /* Trouver l ID de l app */
-            try {
-              var appsRes = await fetch(API_HOST + '/api/apps?search=' + encodeURIComponent(name), { headers: { 'Authorization': 'Bearer ' + TOKEN } });
-              var appsData = await appsRes.json();
-              var found = (appsData.apps || []).find(function(a) { return a.slug === res.slug || a.name === name; });
-              if (found) {
-                appCreatedId = found.id;
-                await fetch(API_HOST + '/api/apps/' + found.id + '/start', { method: 'POST', headers: { 'Authorization': 'Bearer ' + TOKEN } });
-                addVizStep('&#x1F680;', 'App demarree ! Slug: ' + res.slug, 'text-emerald-400');
-                addVizStep('&#x1F310;', 'URL: ' + API_HOST + '/site/' + res.slug, 'text-purple-400');
-              }
-            } catch(e) {}
-
-            updateVizBar(100, 'Projet deploye avec succes !', 'done');
+            if (res.deployed) {
+              updateVizBar(100, 'Projet deploye avec succes !', 'done');
+              addVizStep('&#x2705;', 'App creee et demarree (runtime: ' + (res.runtime || 'nodejs') + ')', 'text-emerald-400');
+              addVizStep('&#x1F310;', 'URL: ' + API_HOST + (res.url || ('/site/' + res.slug)), 'text-purple-400');
+              if (pillTxt) pillTxt.textContent = '\u2705 Termine !';
+            } else {
+              updateVizBar(100, 'Code genere, demarrage a verifier', 'done');
+              addVizStep('&#x26A0;&#xFE0F;', res.deployError ? ('Demarrage en echec: ' + res.deployError) : 'App non deployee automatiquement — verifiez l onglet Apps.', 'text-orange-400');
+              if (pillTxt) pillTxt.textContent = '\u26A0\uFE0F Verification requise';
+            }
             updatePipeline('done', false);
 
             document.getElementById('btn-gen-close').textContent = 'Fermer et voir le dashboard';
             document.getElementById('btn-gen-close').onclick = function() {
-              closeGenerateAIModal();
+              closeGenerateAIModal(true);
               if (typeof loadApps === 'function') loadApps();
             };
           }
@@ -775,6 +805,8 @@
           if (job.status === 'error') {
             clearInterval(_genJobPollInterval);
             _genJobPollInterval = null;
+            _genActiveJobId = null;
+            if (pillTxt) pillTxt.textContent = '\u274C Erreur de generation';
             addVizStep('&#x274C;', 'Erreur: ' + (job.error || job.message), 'text-rose-400');
             updateVizBar(job.progress, 'Echec: ' + (job.message || job.error), job.stage);
             updatePipeline(job.stage, true);
