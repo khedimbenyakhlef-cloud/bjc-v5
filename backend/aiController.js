@@ -1,5 +1,11 @@
 const { Groq } = require("groq-sdk");
 const winston = require("winston");
+const fs = require("fs");
+const path = require("path");
+const { exec } = require("child_process");
+const util = require("util");
+const execAsync = util.promisify(exec);
+const processManager = require("./processManager");
 
 const logger = winston.createLogger({
   level: "info",
@@ -324,37 +330,111 @@ Recommandation: Vérifiez les variables d'environnement (GROQ_API_KEY) et que le
 
 // ─── APPLY REPAIR ─────────────────────────────────────────────────────────────
 async function applyRepair(req, res) {
-  const { appId, patches = [] } = req.body;
+  const { appId, slug: slugFromBody, patches = [] } = req.body;
 
   if (!patches.length) {
-    return res.json({ success: true, applied: 0, message: "Aucun patch à appliquer." });
+    return res.json({ success: true, applied: 0, skipped: 0, message: "Aucun patch à appliquer." });
   }
 
-  // Pour l'instant, les patches de type "restart_only" et "env_var" sont supportés
-  // Les patches server_config nécessitent un accès aux fichiers du projet (futur)
+  const slug = slugFromBody || `mock-app-${appId}`;
+  const meta = processManager.processes.get(slug);
+  const appDir = (meta && meta.appDir) || path.join("/tmp/bjc-apps", slug);
+
   const applied = [];
   const skipped = [];
+  const errors = [];
 
   for (const patch of patches) {
-    if (patch.type === "restart_only") {
-      applied.push(patch.description);
-    } else if (patch.type === "env_var") {
-      // Les env vars sont gérées via l'UI - on les note pour info
-      applied.push(`ENV: ${patch.key} = ${patch.value}`);
-    } else {
-      skipped.push(patch.description);
+    try {
+      if (patch.type === "restart_only") {
+        applied.push(patch.description || "Redémarrage planifié");
+        continue;
+      }
+
+      if (patch.type === "env_var") {
+        if (!patch.key) {
+          skipped.push(patch.description || "env_var sans clé");
+          continue;
+        }
+        if (meta) {
+          meta.envVars = meta.envVars || {};
+          meta.envVars[patch.key] = patch.value !== undefined ? patch.value : "";
+          applied.push(`ENV: ${patch.key} = ${patch.value !== undefined ? patch.value : ""}`);
+        } else {
+          skipped.push(`ENV: ${patch.key} (process inactif, redémarrez l'app d'abord)`);
+        }
+        continue;
+      }
+
+      if (patch.type === "server_config" || patch.type === "package_json") {
+        const fileName = patch.file || (patch.type === "package_json" ? "package.json" : null);
+        if (!fileName) {
+          skipped.push(patch.description || `${patch.type} sans fichier cible`);
+          continue;
+        }
+
+        const safeAppDir = path.resolve(appDir);
+        const targetPath = path.resolve(safeAppDir, fileName);
+
+        if (!targetPath.startsWith(safeAppDir)) {
+          skipped.push(`Chemin de fichier invalide: ${fileName}`);
+          continue;
+        }
+
+        if (!fs.existsSync(targetPath)) {
+          skipped.push(`Fichier introuvable: ${fileName}`);
+          continue;
+        }
+
+        let content = fs.readFileSync(targetPath, "utf8");
+        let fileChanged = false;
+
+        if (patch.find && content.includes(patch.find)) {
+          content = content.replace(patch.find, patch.replace !== undefined ? patch.replace : "");
+          fs.writeFileSync(targetPath, content, "utf8");
+          applied.push(patch.description || `Patch appliqué sur ${fileName}`);
+          fileChanged = true;
+        } else if (patch.dependency && patch.type === "package_json") {
+          const pkg = JSON.parse(content);
+          pkg.dependencies = pkg.dependencies || {};
+          pkg.dependencies[patch.dependency] = patch.version || "latest";
+          fs.writeFileSync(targetPath, JSON.stringify(pkg, null, 2), "utf8");
+          applied.push(`Dépendance ajoutée: ${patch.dependency}@${patch.version || "latest"}`);
+          fileChanged = true;
+        } else {
+          skipped.push(`Texte à remplacer non trouvé dans ${fileName} (${patch.description || ""})`);
+        }
+
+        if (fileChanged && patch.type === "package_json") {
+          try {
+            await execAsync("npm install --no-audit --no-fund", { cwd: appDir, timeout: 120000 });
+            applied.push(`npm install relancé dans ${appDir}`);
+          } catch (npmErr) {
+            errors.push(`npm install a échoué: ${npmErr.message}`);
+          }
+        }
+        continue;
+      }
+
+      skipped.push(patch.description || `Type de patch inconnu: ${patch.type}`);
+    } catch (patchErr) {
+      logger.error(`[repair] Erreur sur patch ${patch.type}: ${patchErr.message}`);
+      errors.push(`${patch.description || patch.type}: ${patchErr.message}`);
     }
   }
 
-  logger.info(`[repair] Applied ${applied.length} patches, skipped ${skipped.length} for app ${appId}`);
+  logger.info(`[repair] Applied ${applied.length}, skipped ${skipped.length}, errors ${errors.length} for slug ${slug}`);
 
   return res.json({
-    success: true,
+    success: errors.length === 0,
     applied: applied.length,
     skipped: skipped.length,
-    message: `${applied.length} patch(es) appliqué(s). ${skipped.length > 0 ? skipped.length + " patch(es) nécessitent un redéploiement manuel." : ""}`,
+    message: `${applied.length} patch(es) réellement appliqué(s).` +
+      (skipped.length ? ` ${skipped.length} ignoré(s).` : "") +
+      (errors.length ? ` ${errors.length} erreur(s).` : ""),
     appliedList: applied,
-    skippedList: skipped
+    skippedList: skipped,
+    errorList: errors
   });
 }
 

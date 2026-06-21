@@ -689,6 +689,30 @@ app.post("/api/apps/:id/restart", authenticateJWT, async (req, res) => {
   }
 });
 
+app.get("/api/apps/:id/health", authenticateJWT, async (req, res) => {
+  const appId = req.params.id;
+  try {
+    let slug = "";
+    if (pgClientPool) {
+      const client = await pgClientPool.connect();
+      try {
+        const appRes = await client.query(`SELECT slug FROM apps WHERE id = $1`, [appId]);
+        slug = appRes.rows[0]?.slug;
+      } finally {
+        client.release();
+      }
+    } else {
+      slug = `mock-app-${appId}`;
+    }
+
+    const meta = processManager.processes.get(slug);
+    const healthy = await processManager.healthCheck(slug);
+    res.json({ healthy, status: meta?.status || "unknown", restartCount: meta?.restartCount ?? 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── FUNCTIONS CRUD ───────────────────────────────────────────
 app.get("/api/apps/:id/functions", authenticateJWT, async (req, res) => {
   try {

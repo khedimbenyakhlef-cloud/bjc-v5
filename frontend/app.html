@@ -965,6 +965,7 @@
           },
           body: JSON.stringify({
             appId,
+            slug: activeAppObj?.slug || "unknown",
             patches: repairPatchData.patches
           })
         });
@@ -976,13 +977,31 @@
         // Redéployer
         await controlApp("restart");
 
-        addStep("✅", "Projet réparé et redémarré avec succès !", "text-emerald-400");
-        
+        addStep("🧪", "Verification que l'app repond bien apres reparation...", "text-purple-400");
+
+        let healthy = false;
+        for (let i = 0; i < 5; i++) {
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            const healthRes = await fetch(`${API_HOST}/api/apps/${appId}/health`, {
+              headers: { "Authorization": `Bearer ${TOKEN}` }
+            });
+            const healthData = await healthRes.json();
+            if (healthData.healthy) { healthy = true; break; }
+          } catch (_) {}
+        }
+
+        if (healthy) {
+          addStep("✅", "Test reussi : l'application repond correctement apres reparation.", "text-emerald-400");
+        } else {
+          addStep("⚠️", "L'app a redemarre mais ne repond pas encore au test de sante - verifiez les logs.", "text-rose-400");
+        }
+
         setTimeout(() => {
           document.getElementById("repair-panel").classList.add("hidden");
           switchTab("deployments");
           loadDeploymentsHistory();
-        }, 3000);
+        }, healthy ? 3000 : 6000);
 
       } catch (err) {
         addStep("❌", "Erreur: " + err.message, "text-rose-400");
