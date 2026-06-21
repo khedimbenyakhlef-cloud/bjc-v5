@@ -441,8 +441,55 @@ async function applyRepair(req, res) {
 let pgClientPool = null;
 function setDbPool(pool) { pgClientPool = pool; }
 
+// ─── ADAPT PROJECT ────────────────────────────────────────────────────────────
+async function adaptProject(req, res) {
+  const { slug, name, runtime, startCommand, logs, existingEnvKeys = [] } = req.body;
+
+  const systemInstruction = `Tu es un expert DevOps PaaS. Analyse une app et genere sa configuration complete pour qu elle fonctionne. Reponds UNIQUEMENT en JSON valide, sans markdown.`;
+
+  const prompt = `App: "${name}" (slug: ${slug}, runtime: ${runtime})
+Commande actuelle: "${startCommand || "non definie"}"
+Variables deja configurees: ${existingEnvKeys.join(", ") || "aucune"}
+LOGS: ${logs || "aucun log"}
+
+Reponds UNIQUEMENT avec ce JSON:
+{
+  "report": "Analyse en 4 lignes: problemes detectes et ce que tu corriges",
+  "runtime": "nodejs",
+  "startCommand": "node server.js",
+  "envVars": [
+    { "key": "PORT", "value": "3000", "required": true },
+    { "key": "API_KEY", "value": "", "required": true }
+  ]
+}
+REGLES: si logs montrent Cannot find module X -> startCommand doit pointer vers le bon fichier. Si EADDRINUSE -> utiliser process.env.PORT. value vide = a remplir manuellement.`;
+
+  try {
+    const raw = await requestLLMWithRetry(prompt, systemInstruction);
+    const cleaned = raw.replace(/\`\`\`json/g, "").replace(/\`\`\`/g, "").trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("JSON non parseable");
+    const parsed = JSON.parse(jsonMatch[0]);
+    logger.info(\`[adapt] \${name}: \${parsed.envVars?.length || 0} vars, cmd=\${parsed.startCommand}\`);
+    return res.json(parsed);
+  } catch (err) {
+    logger.error("adaptProject error: " + err.message);
+    const fallbackCmd = runtime === "python" ? "python app.py" : runtime === "static" ? "npx serve dist" : "node server.js";
+    return res.json({
+      report: \`Configuration par defaut pour \${name} (runtime: \${runtime}). Verifiez les variables d environnement dans l onglet Environnement.\`,
+      runtime,
+      startCommand: fallbackCmd,
+      envVars: [
+        { key: "PORT", value: "3000", required: true },
+        { key: "NODE_ENV", value: "production", required: true }
+      ]
+    });
+  }
+}
+
 module.exports = {
   suggest,
+  adaptProject,
   setDbPool,
   chat,
   analyzeLogs,

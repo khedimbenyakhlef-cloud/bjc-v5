@@ -936,6 +936,25 @@ app.get("/api/apps/:id/health", authenticateJWT, async (req, res) => {
   }
 });
 
+// ─── ADAPT PROJECT ───────────────────────────────────────────────────────────
+app.post("/api/apps/:id/adapt", authenticateJWT, async (req, res) => {
+  const appId = req.params.id;
+  try {
+    let existingEnvKeys = [];
+    if (pgClientPool) {
+      const client = await pgClientPool.connect();
+      try {
+        const envRes = await client.query("SELECT key FROM env_vars WHERE app_id = $1", [appId]);
+        existingEnvKeys = envRes.rows.map(r => r.key);
+      } finally { client.release(); }
+    }
+    req.body.existingEnvKeys = existingEnvKeys;
+    aiController.adaptProject(req, res);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // AI COPILOT ROUTINGS
 app.post("/api/ai/suggest", authenticateJWT, suggestSecureGateway);
 app.post("/api/ai/chat", authenticateJWT, chatSecureGateway);
