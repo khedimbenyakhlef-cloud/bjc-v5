@@ -955,26 +955,13 @@ app.post("/api/apps/:id/adapt", authenticateJWT, async (req, res) => {
   }
 });
 
-// ─── GENERATE PROJECT FROM PROMPT (sync legacy) ─────────────────────────────
+// ─── GENERATE PROJECT FROM PROMPT ───────────────────────────────────────────
 app.post("/api/apps/generate", authenticateJWT, async (req, res) => {
   try {
     await aiController.generateProject(req, res);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
-
-// ─── GENERATE PROJECT ASYNC JOB ──────────────────────────────────────────────
-app.post("/api/apps/generate-async", authenticateJWT, async (req, res) => {
-  try {
-    await aiController.startGenerateProjectJob(req, res);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get("/api/apps/generate-job/:jobId", authenticateJWT, (req, res) => {
-  aiController.getGenerationJobStatus(req, res);
 });
 
 // AI COPILOT ROUTINGS
