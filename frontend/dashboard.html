@@ -808,10 +808,10 @@
 
       // Messages d'ambiance par stage (rotation aléatoire)
       var STAGE_FLAVOUR = {
-        'queued':        ['&#x23F3; Job en file d'attente...', '&#x1F4E5; Transmission au moteur IA...'],
+        'queued':        ['&#x23F3; Job en file d\'attente...', '&#x1F4E5; Transmission au moteur IA...'],
         'analyse':       ['&#x1F50D; Lecture du prompt...', '&#x1F9E0; Compréhension de ta demande...', '&#x1F4CB; Analyse des exigences...'],
-        'base_project':  ['&#x1F4C2; Etude du projet de base fourni...', '&#x1F9E9; Décomposition de l'architecture existante...', '&#x1F4D0; Cartographie des fichiers sources...'],
-        'ia_generation': ['&#x1F916; L'IA écrit le code...', '&#x270D; Génération des fichiers en cours...', '&#x1F4BB; Construction de la logique serveur...', '&#x1F3D7; Architecture du projet...', '&#x1F9F5; Tissage des dépendances...'],
+        'base_project':  ['&#x1F4C2; Etude du projet de base fourni...', '&#x1F9E9; Décomposition de l\'architecture existante...', '&#x1F4D0; Cartographie des fichiers sources...'],
+        'ia_generation': ['&#x1F916; L\'IA écrit le code...', '&#x270D; Génération des fichiers en cours...', '&#x1F4BB; Construction de la logique serveur...', '&#x1F3D7; Architecture du projet...', '&#x1F9F5; Tissage des dépendances...'],
         'parsing':       ['&#x1F9E9; Analyse de la réponse IA...', '&#x1F50E; Validation de la structure JSON...'],
         'writing_files': ['&#x1F4BE; Ecriture sur disque...', '&#x1F528; Création des fichiers...'],
         'deploying':     ['&#x1F680; Déploiement en cours...', '&#x26A1; Démarrage du processus...', '&#x1F310; Enregistrement de la route...'],
@@ -951,7 +951,7 @@
               addVizStep('&#x1F389;', 'PROJET GENERE ET DEPLOYE AVEC SUCCES !', 'text-emerald-400 font-bold');
             } else {
               updateVizBar(100, 'Code généré — vérification du démarrage...', 'done');
-              addVizStep('&#x26A0;&#xFE0F;', res.deployError || 'Démarrage non confirmé — vérifiez l'onglet Apps.', 'text-orange-400');
+              addVizStep('&#x26A0;&#xFE0F;', res.deployError || 'Démarrage non confirmé — vérifiez l\'onglet Apps.', 'text-orange-400');
             }
             updatePipeline('done', false);
             var closeBtn = document.getElementById('btn-gen-close');
