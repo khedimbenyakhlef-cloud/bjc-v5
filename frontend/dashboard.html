@@ -784,19 +784,42 @@
       updateVizBar(5, 'Envoi du job a l IA...', 'queued');
       updatePipeline('queued', false);
 
-      /* Demarrer le job async */
-      var startRes = await fetch(API_HOST + '/api/apps/generate-async', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
-        body: JSON.stringify({ prompt: prompt, projectName: name, runtime: 'nodejs', baseProjectFiles: _genBaseFiles, baseProjectZip: _genBaseZip })
-      });
-      if (!startRes.ok) throw new Error('Erreur demarrage job: ' + startRes.status);
+      /* Demarrer le job async (timeout explicite : si pas de reponse en 30s,
+         on previent au lieu de rester bloque silencieusement) */
+      addVizStep('&#x1F4E1;', 'Envoi de la requete au serveur...', 'text-slate-500');
+      var startCtrl = new AbortController();
+      var startTimeoutId = setTimeout(function() { startCtrl.abort(); }, 30000);
+
+      var startRes;
+      try {
+        startRes = await fetch(API_HOST + '/api/apps/generate-async', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+          body: JSON.stringify({ prompt: prompt, projectName: name, runtime: 'nodejs', baseProjectFiles: _genBaseFiles, baseProjectZip: _genBaseZip }),
+          signal: startCtrl.signal
+        });
+      } catch (fetchErr) {
+        clearTimeout(startTimeoutId);
+        if (fetchErr.name === 'AbortError') {
+          throw new Error('Le serveur ne repond pas (30s ecoulees). Verifie les logs Render — il est peut-etre en train de se reveiller (free tier) ou le fichier joint est trop lourd.');
+        }
+        throw new Error('Connexion impossible: ' + fetchErr.message);
+      }
+      clearTimeout(startTimeoutId);
+
+      if (!startRes.ok) {
+        var errBody = '';
+        try { var errJson = await startRes.json(); errBody = errJson.error || ''; } catch (e) {}
+        if (startRes.status === 413) {
+          throw new Error('Fichier(s) joint(s) trop volumineux pour le serveur (limite depassee).');
+        }
+        throw new Error('Erreur demarrage job (HTTP ' + startRes.status + ')' + (errBody ? ': ' + errBody : ''));
+      }
       var startData = await startRes.json();
       var jobId = startData.jobId;
       _genActiveJobId = jobId;
 
       addVizStep('&#x1F680;', 'Job lance — ID: ' + jobId.slice(-8), 'text-purple-400');
-
 
       /* ═══════════════════════════════════════
          POLLING — console expressive et vivante
@@ -829,13 +852,28 @@
       var _lastFlavourStage = '';
       var _flavourInterval = 4; // toutes les 4 polls (~6s) afficher un message d'ambiance
 
+      var _consecutivePollFailures = 0;
       _genJobPollInterval = setInterval(async function() {
         _pollCount++;
         try {
           var pollRes = await fetch(API_HOST + '/api/apps/generate-job/' + jobId, {
             headers: { 'Authorization': 'Bearer ' + TOKEN }
           });
-          if (!pollRes.ok) return;
+          if (!pollRes.ok) {
+            _consecutivePollFailures++;
+            if (_consecutivePollFailures === 1) {
+              addVizStep('&#x26A0;&#xFE0F;', 'Reponse serveur inattendue (HTTP ' + pollRes.status + '), nouvelle tentative...', 'text-orange-400');
+            }
+            if (_consecutivePollFailures >= 5) {
+              clearInterval(_genJobPollInterval); _genJobPollInterval = null; _genActiveJobId = null;
+              addVizStep('&#x274C;', 'Le job semble perdu cote serveur (HTTP ' + pollRes.status + ' repete). Le serveur a peut-etre redemarre. Verifie les logs Render et relance.', 'text-rose-400 font-bold');
+              updatePipeline('error', true);
+              var sbLost = document.getElementById('gen-status-badge');
+              if (sbLost) { sbLost.textContent = '❌ Job perdu'; sbLost.className = 'px-2.5 py-0.5 rounded-full text-xs font-mono border text-rose-300 border-rose-700/60 bg-rose-950/40'; }
+            }
+            return;
+          }
+          _consecutivePollFailures = 0;
           var job = await pollRes.json();
 
           /* ── Progression barre ── */

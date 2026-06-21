@@ -255,8 +255,8 @@ app.use(cors({
 }));
 
 app.use(compression());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "25mb" }));
+app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 app.use(morgan("combined"));
 
 // 6. Registered Auth & Core Routes
