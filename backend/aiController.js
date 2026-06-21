@@ -438,8 +438,12 @@ async function applyRepair(req, res) {
   });
 }
 
+let pgClientPool = null;
+function setDbPool(pool) { pgClientPool = pool; }
+
 module.exports = {
   suggest,
+  setDbPool,
   chat,
   analyzeLogs,
   repairProject,

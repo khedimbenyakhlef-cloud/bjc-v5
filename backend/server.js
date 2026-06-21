@@ -21,6 +21,7 @@ const EnvVar = require("./EnvVar");
 const processManager = require("./processManager");
 const deploymentQueue = require("./deploymentQueue");
 const aiController = require("./aiController");
+setTimeout(() => { aiController.setDbPool && aiController.setDbPool(pgClientPool); }, 3000);
 const siteServe = require("./siteServe");
 
 // Winston Logger Initialization
@@ -911,6 +912,28 @@ app.get("/api/apps/:id/logs", authenticateJWT, async (req, res) => {
 
   const logs = processManager.getProcessLogs(slug);
   res.json({ logs });
+});
+
+// --- HEALTH CHECK PAR APP ---
+app.get("/api/apps/:id/health", authenticateJWT, async (req, res) => {
+  const appId = req.params.id;
+  try {
+    let slug = "";
+    if (pgClientPool) {
+      const client = await pgClientPool.connect();
+      try {
+        const appRes = await client.query("SELECT slug FROM apps WHERE id = $1", [appId]);
+        slug = appRes.rows[0]?.slug;
+      } finally { client.release(); }
+    } else {
+      slug = "mock-app-" + appId;
+    }
+    if (!slug) return res.json({ healthy: false, reason: "App introuvable" });
+    const healthy = await processManager.healthCheck(slug);
+    res.json({ healthy, slug });
+  } catch (err) {
+    res.status(500).json({ healthy: false, reason: err.message });
+  }
 });
 
 // AI COPILOT ROUTINGS
