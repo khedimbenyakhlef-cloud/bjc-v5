@@ -507,13 +507,14 @@ RÈGLES:
 
 // ─── ADAPT PROJECT ────────────────────────────────────────────────────────────
 async function adaptProject(req, res) {
-  const { slug, name, runtime, startCommand, logs, existingEnvKeys = [] } = req.body;
+  const { slug, name, runtime, startCommand, logs, existingEnvKeys = [], customInstructions = "" } = req.body;
 
-  const systemInstruction = `Tu es un expert DevOps PaaS. Analyse une app et genere sa configuration complete pour qu elle fonctionne. Reponds UNIQUEMENT en JSON valide, sans markdown.`;
+  const systemInstruction = `Tu es un expert DevOps PaaS. Analyse une app et genere sa configuration complete pour qu elle fonctionne. Si l'utilisateur fournit des instructions specifiques, elles sont PRIORITAIRES sur ton propre jugement et tu DOIS les respecter dans ta reponse (runtime, startCommand, envVars). Reponds UNIQUEMENT en JSON valide, sans markdown.`;
 
   const prompt = `App: "${name}" (slug: ${slug}, runtime: ${runtime})
 Commande actuelle: "${startCommand || "non definie"}"
 Variables deja configurees: ${existingEnvKeys.join(", ") || "aucune"}
+${customInstructions ? "INSTRUCTIONS SPECIFIQUES DE L'UTILISATEUR (PRIORITAIRES, A RESPECTER STRICTEMENT):\n" + customInstructions + "\n" : ""}
 LOGS: ${logs || "aucun log"}
 
 Reponds UNIQUEMENT avec ce JSON:
