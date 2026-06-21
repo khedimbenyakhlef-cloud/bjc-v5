@@ -466,17 +466,17 @@ REGLES: si logs montrent Cannot find module X -> startCommand doit pointer vers 
 
   try {
     const raw = await requestLLMWithRetry(prompt, systemInstruction);
-    const cleaned = raw.replace(/\`\`\`json/g, "").replace(/\`\`\`/g, "").trim();
+    const cleaned = raw.replace(/```json/g, "").replace(/```/g, "").trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error("JSON non parseable");
     const parsed = JSON.parse(jsonMatch[0]);
-    logger.info(\`[adapt] \${name}: \${parsed.envVars?.length || 0} vars, cmd=\${parsed.startCommand}\`);
+    logger.info(`[adapt] \${name}: \${parsed.envVars?.length || 0} vars, cmd=\${parsed.startCommand}`);
     return res.json(parsed);
   } catch (err) {
     logger.error("adaptProject error: " + err.message);
     const fallbackCmd = runtime === "python" ? "python app.py" : runtime === "static" ? "npx serve dist" : "node server.js";
     return res.json({
-      report: \`Configuration par defaut pour \${name} (runtime: \${runtime}). Verifiez les variables d environnement dans l onglet Environnement.\`,
+      report: `Configuration par defaut pour \${name} (runtime: \${runtime}). Verifiez les variables d environnement dans l onglet Environnement.`,
       runtime,
       startCommand: fallbackCmd,
       envVars: [
