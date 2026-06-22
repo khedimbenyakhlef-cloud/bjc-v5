@@ -1001,6 +1001,73 @@ app.get("/api/apps/generated-file", authenticateJWT, async (req, res) => {
   }
 });
 
+// ─── DEPLOY GENERATED (Phase 2 — deploy manuel depuis /tmp/bjc-apps) ──────────
+app.post("/api/apps/:appId/deploy-generated", authenticateJWT, async (req, res) => {
+  const { appId } = req.params;
+  if (!appId) return res.status(400).json({ error: "appId manquant" });
+
+  // Trouver le slug dans la DB ou utiliser appId comme slug
+  let slug = appId;
+  let startCommand = "node server.js";
+  let runtime = "nodejs";
+
+  try {
+    if (pool) {
+      const client = await pool.connect();
+      try {
+        const r = await client.query("SELECT * FROM apps WHERE id = $1 OR slug = $1 LIMIT 1", [appId]);
+        if (r.rows[0]) {
+          slug = r.rows[0].slug || appId;
+          startCommand = r.rows[0].start_command || "node server.js";
+          runtime = r.rows[0].runtime || "nodejs";
+          // Mettre a jour le statut
+          await client.query("UPDATE apps SET status = 'deploying' WHERE id = $1 OR slug = $1", [appId]);
+        }
+      } finally { client.release(); }
+    }
+  } catch (err) {
+    logger.warn("[deploy-generated] DB lookup failed: " + err.message);
+  }
+
+  const targetDir = path.join("/tmp/bjc-apps", slug);
+  if (!fs.existsSync(targetDir)) {
+    return res.status(404).json({ error: "Fichiers generes introuvables. Le serveur a peut-etre redémarre (free tier) — relance la generation." });
+  }
+
+  try {
+    const decryptedEnv = appId ? await require("./EnvVar").getPlainObject(appId).catch(function(){return {};}) : {};
+    const info = await processManager.startProcess({
+      appId: appId,
+      slug: slug,
+      runtime: runtime,
+      startCommand: startCommand,
+      envVars: decryptedEnv,
+      appDir: targetDir
+    });
+
+    // Mettre a jour le statut en actif
+    try {
+      if (pool) {
+        const client = await pool.connect();
+        try {
+          await client.query("UPDATE apps SET status = 'active', last_deploy_at = NOW() WHERE id = $1 OR slug = $1", [appId]);
+        } finally { client.release(); }
+      }
+    } catch (_) {}
+
+    return res.json({ success: true, deployed: true, url: "/site/" + slug, port: info.port, slug: slug });
+  } catch (err) {
+    logger.error("[deploy-generated] startProcess failed: " + err.message);
+    try {
+      if (pool) {
+        const client = await pool.connect();
+        try { await client.query("UPDATE apps SET status = 'error' WHERE id = $1 OR slug = $1", [appId]); } finally { client.release(); }
+      }
+    } catch (_) {}
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // AI COPILOT ROUTINGS
 app.post("/api/ai/suggest", authenticateJWT, suggestSecureGateway);
 app.post("/api/ai/chat", authenticateJWT, chatSecureGateway);

@@ -1114,7 +1114,7 @@
     btn.textContent = '\u23F3 Deploiement...';
     var token = localStorage.getItem('bjc_token');
     try {
-      var r = await fetch(API_HOST + '/api/apps/' + appId + '/deploy', {
+      var r = await fetch(API_HOST + '/api/apps/' + appId + '/deploy-generated', {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
       });

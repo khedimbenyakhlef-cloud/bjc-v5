@@ -740,13 +740,13 @@ async function runGenerateProjectJob(jobId, body) {
   const startCommand = parsed.startCommand || defaultStartCmd;
   const description = parsed.description || "";
 
-  // ── A partir d'ici, tout se passe cote serveur : la creation + le demarrage de
-  // l'app continuent meme si le navigateur/l'onglet est ferme, car ce code tourne
-  // dans le process Node de BJC-V5 lui-meme (pas dans le navigateur). Cette app est
-  // isolee dans /tmp/bjc-apps/<slug> et n'a aucun acces aux projets deployes sur
-  // Render/HuggingFace/Netlify ou ailleurs : aucune chance de toucher a autre chose.
-  updateGenerationJob(jobId, { stage: "deploying", progress: 90, message: "Creation de l'app dans BJC..." });
+  // ── PHASE 2 : PAS DE DEPLOY AUTOMATIQUE
+  // Le code est genere et ecrit sur disque. L'utilisateur inspecte les fichiers
+  // via les boutons Code/Viz du dashboard, puis clique "Deployer maintenant".
+  // La creation de l'app en DB + le demarrage du process sont faits par /api/apps/:appId/deploy.
 
+  // On insere quand meme l'app en DB en statut "generated" pour avoir un appId
+  // que le bouton Deploy pourra utiliser.
   let appId = null;
   try {
     if (pgClientPool) {
@@ -754,7 +754,7 @@ async function runGenerateProjectJob(jobId, body) {
       try {
         const queryRes = await client.query(
           "INSERT INTO apps (name, slug, user_id, app_type, runtime, start_command, build_command, status) " +
-          "VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending') RETURNING *",
+          "VALUES ($1, $2, $3, $4, $5, $6, $7, 'generated') RETURNING *",
           [projectName || slug, slug, userId, detectedRuntime === "static" ? "static" : "dynamic", detectedRuntime, startCommand, null]
         );
         appId = queryRes.rows[0] && queryRes.rows[0].id;
@@ -765,40 +765,15 @@ async function runGenerateProjectJob(jobId, body) {
       appId = "app-" + Date.now();
     }
   } catch (err) {
-    logger.error("[generate-job] creation app echouee: " + err.message);
-    updateGenerationJob(jobId, {
-      status: "done", stage: "done", progress: 100,
-      message: "Code genere mais creation de l'app impossible (" + err.message + "). Les fichiers restent disponibles dans /tmp/bjc-apps/" + slug,
-      result: { success: true, slug: slug, files: fileList, startCommand: startCommand, description: description, runtime: detectedRuntime, targetDir: targetDir, deployed: false }
-    });
-    return;
-  }
-
-  updateGenerationJob(jobId, { stage: "deploying", progress: 95, message: "Demarrage du processus..." });
-
-  let port = null;
-  let deployError = null;
-  try {
-    const decryptedEnv = appId ? await EnvVar.getPlainObject(appId) : {};
-    const info = await processManager.startProcess({
-      appId: appId,
-      slug: slug,
-      runtime: detectedRuntime,
-      startCommand: startCommand,
-      envVars: decryptedEnv,
-      appDir: targetDir
-    });
-    port = info.port;
-  } catch (err) {
-    deployError = err.message;
-    logger.error("[generate-job] demarrage app echoue: " + err.message);
+    logger.warn("[generate-job] insertion app en DB echouee (non bloquant): " + err.message);
+    appId = "tmp-" + slug;
   }
 
   updateGenerationJob(jobId, {
     status: "done",
     stage: "done",
     progress: 100,
-    message: deployError ? ("Projet genere mais demarrage en echec: " + deployError) : "Projet genere et deploye avec succes !",
+    message: "Code genere avec succes — en attente de ta validation pour deployer.",
     result: {
       success: true,
       slug: slug,
@@ -808,10 +783,8 @@ async function runGenerateProjectJob(jobId, body) {
       description: description,
       runtime: detectedRuntime,
       targetDir: targetDir,
-      deployed: !deployError,
-      port: port,
-      url: "/site/" + slug,
-      deployError: deployError
+      deployed: false,
+      readyToDeploy: true
     }
   });
 }
