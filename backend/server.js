@@ -205,8 +205,21 @@ async function initDB() {
       );
     `);
 
+    // Create PROJECT_CONVERSATIONS table (historique iteratif des prompts AI)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS project_conversations (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        app_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('user','assistant')),
+        content TEXT NOT NULL,
+        files_changed TEXT[],
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
     // Primary indexing allocations for high-speed foreign queries
     await client.query("CREATE INDEX IF NOT EXISTS idx_apps_user_id ON apps(user_id);");
+    await client.query("CREATE INDEX IF NOT EXISTS idx_project_conversations_app_id ON project_conversations(app_id);");
     await client.query("CREATE INDEX IF NOT EXISTS idx_deployments_app_id ON deployments(app_id);");
     await client.query("CREATE INDEX IF NOT EXISTS idx_env_vars_app_id ON env_vars(app_id);");
     await client.query("CREATE INDEX IF NOT EXISTS idx_functions_app_id ON functions(app_id);");
@@ -1012,8 +1025,8 @@ app.post("/api/apps/:appId/deploy-generated", authenticateJWT, async (req, res) 
   let runtime = "nodejs";
 
   try {
-    if (pool) {
-      const client = await pool.connect();
+    if (pgClientPool) {
+      const client = await pgClientPool.connect();
       try {
         const r = await client.query("SELECT * FROM apps WHERE id = $1 OR slug = $1 LIMIT 1", [appId]);
         if (r.rows[0]) {
@@ -1047,8 +1060,8 @@ app.post("/api/apps/:appId/deploy-generated", authenticateJWT, async (req, res) 
 
     // Mettre a jour le statut en actif
     try {
-      if (pool) {
-        const client = await pool.connect();
+      if (pgClientPool) {
+        const client = await pgClientPool.connect();
         try {
           await client.query("UPDATE apps SET status = 'active', last_deploy_at = NOW() WHERE id = $1 OR slug = $1", [appId]);
         } finally { client.release(); }
@@ -1059,12 +1072,77 @@ app.post("/api/apps/:appId/deploy-generated", authenticateJWT, async (req, res) 
   } catch (err) {
     logger.error("[deploy-generated] startProcess failed: " + err.message);
     try {
-      if (pool) {
-        const client = await pool.connect();
+      if (pgClientPool) {
+        const client = await pgClientPool.connect();
         try { await client.query("UPDATE apps SET status = 'error' WHERE id = $1 OR slug = $1", [appId]); } finally { client.release(); }
       }
     } catch (_) {}
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PREVIEW MANAGER (sandbox temporaire, non inscrit dans Render) ──────────
+const { createProxyMiddleware } = require("http-proxy-middleware");
+const previewManager = require("./previewManager");
+
+app.post("/api/apps/:appId/preview/start", authenticateJWT, async (req, res) => {
+  const { appId } = req.params;
+  const { slug, startCommand } = req.body;
+  if (!slug) return res.status(400).json({ error: "slug manquant" });
+
+  const targetDir = path.join("/tmp/bjc-apps", slug);
+  if (!fs.existsSync(targetDir)) {
+    return res.status(404).json({ error: "Projet introuvable sur disque (free tier redemarre ?)" });
+  }
+
+  try {
+    const { port } = await previewManager.startPreview(appId, targetDir, startCommand || "node server.js");
+    const rawToken = (req.headers.authorization || "").split(" ")[1] || "";
+    res.json({ success: true, port, previewUrl: "/preview/" + appId + "/?token=" + encodeURIComponent(rawToken) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/apps/:appId/preview/stop", authenticateJWT, (req, res) => {
+  previewManager.stopPreview(req.params.appId);
+  res.json({ success: true });
+});
+
+// Auth dediee pour la proxy preview: un <iframe src="..."> ne peut pas envoyer
+// de header Authorization, donc on accepte aussi le token en query string ICI UNIQUEMENT.
+function authenticatePreviewAccess(req, res, next) {
+  const headerToken = (req.headers.authorization || "").split(" ")[1];
+  const token = headerToken || req.query.token;
+  if (!token) return res.status(401).send("Token manquant pour accéder au preview.");
+  try {
+    jwt.verify(token, JWT_SECRET);
+    next();
+  } catch (err) {
+    res.status(403).send("Token invalide ou expiré.");
+  }
+}
+
+app.use("/preview/:appId", authenticatePreviewAccess, (req, res, next) => {
+  const { appId } = req.params;
+  const port = previewManager.getPreviewPort(appId);
+  if (!port) return res.status(404).send("Preview non actif. Clique sur 'Start Preview' d'abord.");
+
+  createProxyMiddleware({
+    target: "http://localhost:" + port,
+    changeOrigin: true,
+    ws: true,
+    pathRewrite: function (p) { return p.replace("/preview/" + appId, ""); }
+  })(req, res, next);
+});
+
+// ─── ITERATION SUR PROJET GENERE (prompts progressifs avant deploy) ────────
+app.post("/api/apps/:appId/iterate", authenticateJWT, async (req, res) => {
+  req.body.appId = req.params.appId;
+  try {
+    await aiController.iterateProject(req, res);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

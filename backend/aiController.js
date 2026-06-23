@@ -841,6 +841,112 @@ REGLES: si logs montrent Cannot find module X -> startCommand doit pointer vers 
   }
 }
 
+// ─── HISTORIQUE CONVERSATIONNEL PAR PROJET (Postgres) ───────────────────────
+async function getConversationHistory(appId) {
+  if (!pgClientPool) return [];
+  const client = await pgClientPool.connect();
+  try {
+    const r = await client.query(
+      "SELECT role, content, files_changed, created_at FROM project_conversations WHERE app_id = $1 ORDER BY created_at ASC",
+      [appId]
+    );
+    return r.rows;
+  } finally { client.release(); }
+}
+
+async function appendConversationMessage(appId, role, content, filesChanged) {
+  if (!pgClientPool) return;
+  const client = await pgClientPool.connect();
+  try {
+    await client.query(
+      "INSERT INTO project_conversations (app_id, role, content, files_changed) VALUES ($1, $2, $3, $4)",
+      [appId, role, content, filesChanged || []]
+    );
+  } finally { client.release(); }
+}
+
+// ─── LECTURE DES FICHIERS ACTUELS SUR DISQUE (pour contexte IA) ─────────────
+function readProjectFilesFromDisk(targetDir) {
+  const files = {};
+  if (!fs.existsSync(targetDir)) return files;
+
+  function walk(dir, relBase) {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name === "node_modules" || entry.name === ".git") continue;
+      const full = path.join(dir, entry.name);
+      const rel = relBase ? relBase + "/" + entry.name : entry.name;
+      if (entry.isDirectory()) { walk(full, rel); continue; }
+      const ext = path.extname(entry.name).toLowerCase();
+      if (BASE_PROJECT_TEXT_EXTENSIONS.indexOf(ext) === -1) continue;
+      try { files[rel] = fs.readFileSync(full, "utf-8"); } catch (e) {}
+    }
+  }
+  walk(targetDir, "");
+  return files;
+}
+
+// ─── ITERATION SUR UN PROJET EXISTANT (prompts progressifs avant deploy) ───
+async function iterateProject(req, res) {
+  const { appId, slug, prompt: userPrompt } = req.body;
+  if (!slug || !userPrompt) return res.status(400).json({ error: "slug et prompt requis" });
+
+  const targetDir = path.join("/tmp/bjc-apps", slug);
+  if (!fs.existsSync(targetDir)) {
+    return res.status(404).json({ error: "Projet introuvable sur disque (le serveur a peut-etre redemarre - free tier). Relance une generation complete." });
+  }
+
+  try {
+    const history = await getConversationHistory(appId);
+    const currentFiles = readProjectFilesFromDisk(targetDir);
+
+    const historyText = history.map(function (m) {
+      return "[" + m.role.toUpperCase() + "] " + m.content;
+    }).join("\n") || "(aucun historique)";
+
+    const filesText = Object.entries(currentFiles).map(function ([fname, content]) {
+      return "--- " + fname + " ---\n" + content;
+    }).join("\n\n");
+
+    const systemInstruction = "Tu es un expert developpeur full-stack qui modifie un projet existant suite a une demande iterative. " +
+      "Tu reponds UNIQUEMENT avec du JSON valide, sans markdown, contenant SEULEMENT les fichiers MODIFIES OU CREES (pas tout le projet).";
+
+    const fullPrompt = "Historique de la conversation sur ce projet:\n" + historyText +
+      "\n\nCode actuel du projet:\n" + filesText +
+      "\n\nNouvelle demande de l'utilisateur:\n" + userPrompt +
+      "\n\nReponds UNIQUEMENT avec ce JSON:\n" +
+      "{ \"files\": { \"nom_fichier\": \"contenu complet du fichier modifie\" }, \"summary\": \"resume en 1 ligne de ce que tu as change\" }";
+
+    const raw = await generateWithExtendedBudget(fullPrompt, systemInstruction, { maxTokens: 4096, timeoutMs: 120000 });
+    const cleaned = raw.replace(/```json/g, "").replace(/```/g, "").trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("Reponse IA non parseable");
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    const changedFiles = Object.keys(parsed.files || {});
+    for (const [filePath, content] of Object.entries(parsed.files || {})) {
+      const fullPath = path.join(targetDir, filePath);
+      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+      fs.writeFileSync(fullPath, content, "utf-8");
+    }
+
+    await appendConversationMessage(appId, "user", userPrompt, []);
+    await appendConversationMessage(appId, "assistant", parsed.summary || "Fichiers modifies", changedFiles);
+
+    logger.info("[iterate] " + slug + ": " + changedFiles.length + " fichier(s) modifie(s)");
+
+    return res.json({
+      success: true,
+      filesChanged: changedFiles,
+      summary: parsed.summary || "",
+      targetDir: targetDir
+    });
+  } catch (err) {
+    logger.error("[iterate] error: " + err.message);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   suggest,
   adaptProject,
@@ -851,7 +957,9 @@ module.exports = {
   repairProject,
   applyRepair,
   rotateCredentials,
-  getGroqClient
+  getGroqClient,
+  iterateProject,
+  getConversationHistory
 };
 
 
