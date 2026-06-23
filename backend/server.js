@@ -46,6 +46,7 @@ const upload = multer({ dest: uploadFolder });
 
 // Secure JWT secret
 const JWT_SECRET = process.env.JWT_SECRET || "bjc_super_secret_session_token_vault_key";
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 
 let pgClientPool = null;
 let redisClient = null;
@@ -309,7 +310,7 @@ app.post("/api/auth/register", async (req, res) => {
           [email.toLowerCase(), hash, name]
         );
         const newUser = queryRes.rows[0];
-        const token = jwt.sign({ id: newUser.id, email: newUser.email, role: newUser.role }, JWT_SECRET, { expiresIn: "24h" });
+        const token = jwt.sign({ id: newUser.id, email: newUser.email, role: newUser.role }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
         return res.status(201).json({ token, user: newUser });
       } finally {
         client.release();
@@ -349,7 +350,7 @@ app.post("/api/auth/login", async (req, res) => {
           return res.status(401).json({ error: "Invalid email credentials or password." });
         }
 
-        const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: "24h" });
+        const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
         return res.json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
       } finally {
         client.release();
@@ -384,7 +385,7 @@ app.post("/api/auth/refresh", (req, res) => {
     const newToken = jwt.sign(
       { id: decoded.id, email: decoded.email, role: decoded.role },
       JWT_SECRET,
-      { expiresIn: "24h" }
+      { expiresIn: JWT_EXPIRES_IN }
     );
     return res.json({ token: newToken });
   } catch (err) {
