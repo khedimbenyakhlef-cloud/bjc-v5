@@ -368,6 +368,30 @@ app.get("/api/auth/me", authenticateJWT, (req, res) => {
   res.json({ user: req.user });
 });
 
+// ─── TOKEN REFRESH ────────────────────────────────────────────────────────────
+// Renouvelle un JWT valide ou presque expire (jusqu'a 48h apres expiration)
+app.post("/api/auth/refresh", (req, res) => {
+  const headerToken = (req.headers.authorization || "").split(" ")[1];
+  if (!headerToken) return res.status(401).json({ error: "Token manquant" });
+  try {
+    // Verifier meme si expire (ignoreExpiration:true) pour autoriser le refresh
+    const decoded = jwt.verify(headerToken, JWT_SECRET, { ignoreExpiration: true });
+    // Refuser si trop vieux (> 48h apres expiration)
+    const now = Math.floor(Date.now() / 1000);
+    if (decoded.exp && now - decoded.exp > 48 * 3600) {
+      return res.status(401).json({ error: "Token trop vieux, reconnexion obligatoire" });
+    }
+    const newToken = jwt.sign(
+      { id: decoded.id, email: decoded.email, role: decoded.role },
+      JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+    return res.json({ token: newToken });
+  } catch (err) {
+    return res.status(401).json({ error: "Token invalide: " + err.message });
+  }
+});
+
 // APPS CONTROLLER ENDPOINTS
 app.get("/api/apps", authenticateJWT, async (req, res) => {
   const page = parseInt(req.query.page) || 1;

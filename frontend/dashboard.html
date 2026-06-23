@@ -513,9 +513,46 @@
           <div class="px-5 py-3 border-b border-slate-800/40 flex items-center justify-between shrink-0">
             <div class="flex items-center gap-2">
               <div class="w-2 h-2 rounded-full bg-slate-600" id="gen-live-dot"></div>
-              <span class="text-slate-400 text-xs font-mono uppercase tracking-wider">Console temps réel</span>
+              <span class="text-slate-400 text-xs font-mono uppercase tracking-wider" id="right-panel-label">Console temps réel</span>
             </div>
-            <div id="gen-viz-pct-badge" class="text-purple-400 text-xs font-mono font-bold">0%</div>
+            <div class="flex items-center gap-2">
+              <div id="gen-viz-pct-badge" class="text-purple-400 text-xs font-mono font-bold">0%</div>
+              <button id="btn-toggle-preview" onclick="togglePreviewPanel()" class="hidden px-2.5 py-1 bg-slate-800 hover:bg-purple-900/60 text-slate-400 hover:text-purple-300 text-xs rounded-lg border border-slate-700 hover:border-purple-700 transition font-mono">
+                &#x1F310; Preview
+              </button>
+            </div>
+          </div>
+
+          <!-- ── PREVIEW PANEL (mini navigateur integre) ── -->
+          <div id="gen-preview-panel" class="hidden flex-1 flex flex-col overflow-hidden">
+            <!-- Browser bar -->
+            <div class="flex items-center gap-2 px-3 py-2 bg-slate-900/80 border-b border-slate-800 shrink-0">
+              <div class="flex gap-1.5">
+                <div class="w-2.5 h-2.5 rounded-full bg-rose-500/70"></div>
+                <div class="w-2.5 h-2.5 rounded-full bg-yellow-500/70"></div>
+                <div class="w-2.5 h-2.5 rounded-full bg-emerald-500/70"></div>
+              </div>
+              <div class="flex-1 flex items-center gap-1 bg-slate-800 rounded-lg px-2.5 py-1 border border-slate-700">
+                <span class="text-slate-500 text-xs">&#x1F512;</span>
+                <input id="preview-url-bar" type="text" readonly
+                  class="flex-1 bg-transparent text-slate-300 text-xs font-mono outline-none truncate"
+                  value="En attente du deploy..."/>
+              </div>
+              <button onclick="reloadPreview()" class="p-1.5 hover:bg-slate-700 rounded-lg transition text-slate-400 hover:text-white text-xs" title="Actualiser">&#x21BB;</button>
+              <button onclick="openPreviewExternal()" class="p-1.5 hover:bg-slate-700 rounded-lg transition text-slate-400 hover:text-white text-xs" title="Ouvrir dans un onglet">&#x2197;</button>
+            </div>
+            <!-- Iframe -->
+            <div class="flex-1 relative overflow-hidden bg-white">
+              <iframe id="preview-iframe" src="about:blank"
+                class="absolute inset-0 w-full h-full border-0"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                title="Preview"></iframe>
+              <div id="preview-placeholder" class="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 text-center p-6">
+                <div class="text-4xl mb-3">&#x1F4F1;</div>
+                <p class="text-slate-400 text-sm font-semibold">Preview disponible apres deploy</p>
+                <p class="text-slate-600 text-xs mt-1">Deploie ton projet pour voir la preview ici</p>
+              </div>
+            </div>
           </div>
 
           <!-- ── IDLE state (avant lancement) ── -->
@@ -578,17 +615,53 @@
               <div id="gen-viz-files" class="flex flex-col gap-1"></div>
             </div>
 
-            <!-- Zone Deploy Manuel (Phase 1) -->
+            <!-- Zone Deploy Manuel -->
             <div id="gen-deploy-zone" class="hidden shrink-0 bg-emerald-950/30 border border-emerald-700/40 rounded-xl p-3 flex items-center justify-between gap-3">
               <div>
                 <p class="text-emerald-300 text-xs font-bold">&#x2728; Code genere avec succes</p>
-                <p class="text-slate-500 text-xs mt-0.5">Inspecte les fichiers ci-dessus, puis clique pour deployer.</p>
+                <p class="text-slate-500 text-xs mt-0.5">Inspecte les fichiers ci-dessus, puis deploie.</p>
               </div>
-              <button id="btn-deploy-now" data-appid=""
-                onclick="deployNow(this)"
-                class="shrink-0 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl border border-emerald-500/40 transition flex items-center gap-1.5 whitespace-nowrap shadow-lg shadow-emerald-950/30">
-                &#x1F680; Deployer maintenant
-              </button>
+              <div class="flex items-center gap-2 shrink-0">
+                <button id="btn-preview-local"
+                  onclick="(function(){var b=document.getElementById('btn-deploy-now');startLocalPreview(b.getAttribute('data-appid'),b.getAttribute('data-slug'),null);})()"
+                  class="px-3 py-2 bg-cyan-900/60 hover:bg-cyan-800/80 text-cyan-300 text-xs font-bold rounded-xl border border-cyan-700/40 transition flex items-center gap-1 whitespace-nowrap">
+                  &#x1F4F1; Preview
+                </button>
+                <button id="btn-deploy-now" data-appid="" data-slug=""
+                  onclick="deployNow(this)"
+                  class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl border border-emerald-500/40 transition flex items-center gap-1.5 whitespace-nowrap shadow-lg shadow-emerald-950/30">
+                  &#x1F680; Deployer
+                </button>
+              </div>
+            </div>
+
+            <!-- Zone Iteration Prompts (visible apres generation) -->
+            <div id="gen-iteration-zone" class="hidden shrink-0 flex flex-col gap-2">
+              <div class="flex items-center gap-2 px-1">
+                <span class="text-purple-400 text-xs font-bold uppercase tracking-wider">&#x1F504; Affiner le projet</span>
+                <span class="text-slate-600 text-xs">— prompts iteratifs</span>
+              </div>
+              <!-- Quick actions -->
+              <div class="flex flex-wrap gap-1.5">
+                <button onclick="sendIterationPrompt('Ajoute une page d\'accueil avec hero section')" class="iter-quick px-2 py-1 bg-slate-800 hover:bg-purple-900/60 text-slate-300 hover:text-purple-300 text-xs rounded-lg border border-slate-700 hover:border-purple-700 transition">+ Landing page</button>
+                <button onclick="sendIterationPrompt('Ajoute un systeme d\'authentification avec login/register')" class="iter-quick px-2 py-1 bg-slate-800 hover:bg-purple-900/60 text-slate-300 hover:text-purple-300 text-xs rounded-lg border border-slate-700 hover:border-purple-700 transition">+ Auth</button>
+                <button onclick="sendIterationPrompt('Ameliore le design avec un theme sombre moderne')" class="iter-quick px-2 py-1 bg-slate-800 hover:bg-purple-900/60 text-slate-300 hover:text-purple-300 text-xs rounded-lg border border-slate-700 hover:border-purple-700 transition">+ Dark UI</button>
+                <button onclick="sendIterationPrompt('Ajoute une API REST avec endpoints CRUD')" class="iter-quick px-2 py-1 bg-slate-800 hover:bg-purple-900/60 text-slate-300 hover:text-purple-300 text-xs rounded-lg border border-slate-700 hover:border-purple-700 transition">+ API REST</button>
+                <button onclick="sendIterationPrompt('Optimise les performances et ajoute un cache')" class="iter-quick px-2 py-1 bg-slate-800 hover:bg-purple-900/60 text-slate-300 hover:text-purple-300 text-xs rounded-lg border border-slate-700 hover:border-purple-700 transition">+ Cache</button>
+                <button onclick="sendIterationPrompt('Ajoute une base de donnees PostgreSQL avec migrations')" class="iter-quick px-2 py-1 bg-slate-800 hover:bg-purple-900/60 text-slate-300 hover:text-purple-300 text-xs rounded-lg border border-slate-700 hover:border-purple-700 transition">+ Database</button>
+              </div>
+              <!-- Prompt libre -->
+              <div class="flex gap-2">
+                <textarea id="iter-prompt-input" rows="2"
+                  placeholder="Decris ce que tu veux ajouter ou modifier..."
+                  class="flex-1 bg-slate-900 border border-slate-700 focus:border-purple-600 text-slate-300 text-xs rounded-xl px-3 py-2 resize-none outline-none transition placeholder-slate-600"
+                  style="scrollbar-width:thin;"
+                  onkeydown="if(event.ctrlKey&&event.key==='Enter'){sendIterationPromptFromInput();event.preventDefault();}"></textarea>
+                <button onclick="sendIterationPromptFromInput()"
+                  class="shrink-0 px-3 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl border border-purple-500/40 transition flex items-center gap-1">
+                  &#x27A4;
+                </button>
+              </div>
             </div>
 
             <!-- Action button -->
@@ -1024,8 +1097,15 @@
             if (deployZone) {
               deployZone.classList.remove('hidden');
               var appId = _genLastJobResult.appId || _genLastJobResult.id || null;
-              document.getElementById('btn-deploy-now').setAttribute('data-appid', appId || '');
+              var slug  = _genLastJobResult.slug || null;
+              var deployBtn = document.getElementById('btn-deploy-now');
+              deployBtn.setAttribute('data-appid', appId || '');
+              deployBtn.setAttribute('data-slug', slug || '');
             }
+
+            // Afficher zone iteration meme avant deploy
+            var iterZoneEarly = document.getElementById('gen-iteration-zone');
+            if (iterZoneEarly) iterZoneEarly.classList.remove('hidden');
 
             var closeBtn = document.getElementById('btn-gen-close');
             if (closeBtn) {
@@ -1104,29 +1184,70 @@
     }
   }
 
+  // ── TOKEN REFRESH HELPER ──────────────────────────────────────
+  async function refreshTokenIfNeeded() {
+    try {
+      var token = localStorage.getItem('bjc_token');
+      var r = await fetch(API_HOST + '/api/auth/refresh', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
+      });
+      if (r.ok) {
+        var d = await r.json();
+        if (d.token) { localStorage.setItem('bjc_token', d.token); return d.token; }
+      }
+    } catch(e) {}
+    return localStorage.getItem('bjc_token');
+  }
+
+  async function fetchWithAuth(url, opts) {
+    var token = localStorage.getItem('bjc_token');
+    opts = opts || {};
+    opts.headers = opts.headers || {};
+    opts.headers['Authorization'] = 'Bearer ' + token;
+    var r = await fetch(url, opts);
+    if (r.status === 401) {
+      // Token expire — essayer refresh puis re-login
+      addVizStep('\uD83D\uDD04', 'Token expire — reconnexion automatique...', 'text-yellow-400');
+      var newToken = await refreshTokenIfNeeded();
+      opts.headers['Authorization'] = 'Bearer ' + newToken;
+      r = await fetch(url, opts);
+      if (r.status === 401) {
+        // Vraiment expire — rediriger login
+        addVizStep('\u26A0\uFE0F', 'Session expiree. Reconnecte-toi.', 'text-orange-400');
+        setTimeout(function(){ window.location.href = '/login.html'; }, 2000);
+        throw new Error('Session expiree — redirection vers login');
+      }
+    }
+    return r;
+  }
+
+  // ── DEPLOY ────────────────────────────────────────────────────
   async function deployNow(btn) {
     var appId = btn.getAttribute('data-appid');
+    var slug  = btn.getAttribute('data-slug') || '';
     if (!appId) {
       addVizStep('\u26A0\uFE0F', 'Pas d\'appId disponible — essaie de relancer la generation.', 'text-orange-400');
       return;
     }
     btn.disabled = true;
     btn.textContent = '\u23F3 Deploiement...';
-    var token = localStorage.getItem('bjc_token');
     try {
-      var r = await fetch(API_HOST + '/api/apps/' + appId + '/deploy-generated', {
+      var r = await fetchWithAuth(API_HOST + '/api/apps/' + appId + '/deploy-generated', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' }
       });
       var d = await r.json();
       if (r.ok && (d.success || d.deployed || d.url)) {
-        addVizStep('\uD83C\uDF89', 'DEPLOYE ! URL: ' + (API_HOST + (d.url || '/site/' + (d.slug||appId))), 'text-emerald-400 font-bold');
-        addVizStep('\uD83C\uDF10', API_HOST + (d.url || '/site/' + (d.slug||appId)), 'text-purple-400 underline');
+        var siteUrl = API_HOST + (d.url || '/site/' + (d.slug || slug || appId));
+        addVizStep('\uD83C\uDF89', 'DEPLOYE ! ' + siteUrl, 'text-emerald-400 font-bold');
+        addVizStep('\uD83C\uDF10', siteUrl, 'text-purple-400 underline');
         var sb = document.getElementById('gen-status-badge');
         if (sb) { sb.textContent = '\u2705 Deploye !'; sb.className = 'px-2.5 py-0.5 rounded-full text-xs font-mono border text-emerald-300 border-emerald-700/60 bg-emerald-950/40'; }
         btn.textContent = '\u2705 Deploye !';
         btn.className = btn.className.replace('bg-emerald-600','bg-emerald-800').replace('hover:bg-emerald-500','');
         document.getElementById('gen-deploy-zone').classList.add('border-emerald-500/60');
+        loadPreviewUrl(siteUrl);
         if (typeof loadApps === 'function') loadApps();
       } else {
         throw new Error(d.error || 'Reponse inattendue du serveur');
@@ -1135,6 +1256,141 @@
       addVizStep('\u274C', 'Erreur deploiement: ' + e.message, 'text-rose-400 font-bold');
       btn.disabled = false;
       btn.textContent = '\uD83D\uDE80 Reessayer';
+    }
+  }
+
+  // ── PREVIEW MINI-NAVIGATEUR ───────────────────────────────────
+  var _previewCurrentUrl = '';
+  var _previewVisible = false;
+
+  function loadPreviewUrl(directUrl) {
+    // directUrl = URL deployee definitive (apres deploy Render/BJC)
+    _previewCurrentUrl = directUrl;
+    var bar = document.getElementById('preview-url-bar');
+    var iframe = document.getElementById('preview-iframe');
+    var placeholder = document.getElementById('preview-placeholder');
+    if (bar) bar.value = directUrl;
+    if (iframe) { iframe.src = directUrl; }
+    if (placeholder) placeholder.classList.add('hidden');
+    var toggleBtn = document.getElementById('btn-toggle-preview');
+    if (toggleBtn) toggleBtn.classList.remove('hidden');
+  }
+
+  async function startLocalPreview(appId, slug, startCommand) {
+    // Preview locale via previewManager (avant deploy definitif)
+    try {
+      addVizStep('\uD83D\uDD0D', 'Demarrage preview locale...', 'text-cyan-400');
+      var r = await fetchWithAuth(API_HOST + '/api/apps/' + appId + '/preview/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: slug, startCommand: startCommand || 'node server.js' })
+      });
+      var d = await r.json();
+      if (r.ok && d.previewUrl) {
+        var fullUrl = API_HOST + d.previewUrl;
+        _previewCurrentUrl = fullUrl;
+        var bar = document.getElementById('preview-url-bar');
+        var iframe = document.getElementById('preview-iframe');
+        var placeholder = document.getElementById('preview-placeholder');
+        if (bar) bar.value = 'Preview locale — ' + slug;
+        // iframe via proxy (token en query string)
+        if (iframe) { iframe.src = fullUrl; }
+        if (placeholder) placeholder.classList.add('hidden');
+        var toggleBtn = document.getElementById('btn-toggle-preview');
+        if (toggleBtn) toggleBtn.classList.remove('hidden');
+        addVizStep('\uD83D\uDFE2', 'Preview prete ! Clique sur "Preview" pour voir.', 'text-emerald-400 font-bold');
+      } else {
+        addVizStep('\u26A0\uFE0F', 'Preview: ' + (d.error || 'Impossible de demarrer'), 'text-orange-400');
+      }
+    } catch(e) {
+      addVizStep('\u26A0\uFE0F', 'Preview indisponible (free tier): ' + e.message, 'text-orange-400');
+    }
+  }
+
+  function togglePreviewPanel() {
+    _previewVisible = !_previewVisible;
+    var previewPanel = document.getElementById('gen-preview-panel');
+    var consolePanel = document.getElementById('gen-ai-visualization');
+    var label = document.getElementById('right-panel-label');
+    var toggleBtn = document.getElementById('btn-toggle-preview');
+    if (_previewVisible) {
+      previewPanel.classList.remove('hidden');
+      consolePanel.classList.add('hidden');
+      if (label) label.textContent = 'Preview';
+      if (toggleBtn) toggleBtn.innerHTML = '&#x1F4BB; Console';
+    } else {
+      previewPanel.classList.add('hidden');
+      consolePanel.classList.remove('hidden');
+      if (label) label.textContent = 'Console temps r\u00E9el';
+      if (toggleBtn) toggleBtn.innerHTML = '&#x1F310; Preview';
+    }
+  }
+
+  function reloadPreview() {
+    var iframe = document.getElementById('preview-iframe');
+    if (iframe && _previewCurrentUrl) { iframe.src = _previewCurrentUrl; }
+  }
+
+  function openPreviewExternal() {
+    if (_previewCurrentUrl) window.open(_previewCurrentUrl, '_blank');
+  }
+
+  // ── ITERATION PROMPTS ─────────────────────────────────────────
+  function sendIterationPrompt(text) {
+    var input = document.getElementById('iter-prompt-input');
+    if (input) { input.value = text; }
+    sendIterationPromptFromInput();
+  }
+
+  async function sendIterationPromptFromInput() {
+    var input = document.getElementById('iter-prompt-input');
+    var text = input ? input.value.trim() : '';
+    if (!text) return;
+    var deployBtn = document.getElementById('btn-deploy-now');
+    var appId = deployBtn.getAttribute('data-appid');
+    var slug  = deployBtn.getAttribute('data-slug') || '';
+    if (!appId || !slug) {
+      addVizStep('\u26A0\uFE0F', 'Lance d\'abord une generation complete.', 'text-orange-400');
+      return;
+    }
+    addVizStep('\uD83D\uDCAC', 'Iteration: ' + text, 'text-purple-300');
+    if (input) input.value = '';
+    // Revenir sur la console
+    if (_previewVisible) togglePreviewPanel();
+
+    // Spinner dans le bouton iteration
+    var sendBtn = input ? input.nextElementSibling : null;
+    if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '\u23F3'; }
+
+    try {
+      // iterate est SYNCHRONE (peut prendre 30-60s — Groq)
+      addVizStep('\u23F3', 'IA en cours... (peut prendre 30s)', 'text-slate-400');
+      var r = await fetchWithAuth(API_HOST + '/api/apps/' + appId + '/iterate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: text, appId: appId, slug: slug })
+      });
+      var d = await r.json();
+      if (r.ok && d.success) {
+        var fileCount = (d.filesChanged || []).length;
+        addVizStep('\u2728', 'Iteration OK — ' + fileCount + ' fichier(s) modifie(s): ' + (d.filesChanged || []).join(', '), 'text-emerald-300 font-bold');
+        addVizStep('\uD83D\uDCDD', d.summary || '', 'text-purple-300');
+        // Proposer redeploy
+        deployBtn.textContent = '\uD83D\uDD04 Re-deployer';
+        deployBtn.disabled = false;
+        deployBtn.className = deployBtn.className.replace('bg-emerald-800','bg-emerald-600').replace('bg-emerald-600','bg-emerald-600');
+        // Si preview locale disponible, relancer
+        if (_previewCurrentUrl && _previewCurrentUrl.includes('/preview/')) {
+          addVizStep('\uD83D\uDD04', 'Preview en cours de rechargement...', 'text-cyan-400');
+          setTimeout(reloadPreview, 2000);
+        }
+      } else {
+        throw new Error(d.error || 'Erreur iteration');
+      }
+    } catch(e) {
+      addVizStep('\u274C', 'Erreur: ' + e.message, 'text-rose-400');
+    } finally {
+      if (sendBtn) { sendBtn.disabled = false; sendBtn.innerHTML = '&#x27A4;'; }
     }
   }
 
