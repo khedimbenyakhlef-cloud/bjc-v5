@@ -696,6 +696,8 @@
   var _genLastJobResult = {};
 
   function openGenerateAIModal() {
+    // Verifier token des l'ouverture du modal
+    checkTokenAndWarn();
     document.getElementById('modal-generate-ai').classList.remove('hidden');
     document.getElementById('gen-ai-form').classList.remove('hidden');
     document.getElementById('gen-ai-visualization').classList.add('hidden');
@@ -1276,10 +1278,50 @@
     if (toggleBtn) toggleBtn.classList.remove('hidden');
   }
 
-  async function startLocalPreview(appId, slug, startCommand) {
-    // Preview locale via previewManager (avant deploy definitif)
+  // ── TOKEN VALIDITY CHECK (client-side, no server call) ────────
+  function getTokenPayload() {
     try {
-      addVizStep('\uD83D\uDD0D', 'Demarrage preview locale...', 'text-cyan-400');
+      var token = localStorage.getItem('bjc_token');
+      if (!token) return null;
+      var parts = token.split('.');
+      if (parts.length !== 3) return null;
+      var payload = JSON.parse(atob(parts[1].replace(/-/g,'+').replace(/_/g,'/')));
+      return payload;
+    } catch(e) { return null; }
+  }
+
+  function isTokenExpired() {
+    var p = getTokenPayload();
+    if (!p || !p.exp) return false;
+    return Math.floor(Date.now() / 1000) > p.exp;
+  }
+
+  function checkTokenAndWarn() {
+    if (isTokenExpired()) {
+      var banner = document.getElementById('token-expired-banner');
+      if (banner) banner.classList.remove('hidden');
+    }
+  }
+
+  async function startLocalPreview(appId, slug, startCommand) {
+    if (!appId || !slug) {
+      addVizStep('\u26A0\uFE0F', 'Genere d\'abord un projet.', 'text-orange-400');
+      return;
+    }
+    if (isTokenExpired()) {
+      addVizStep('\uD83D\uDD04', 'Token expire \u2014 tentative de refresh...', 'text-yellow-400');
+      await refreshTokenIfNeeded();
+      if (isTokenExpired()) {
+        addVizStep('\u274C', 'Session expiree. Deconnecte-toi puis reconnecte-toi.', 'text-rose-400 font-bold');
+        var banner = document.getElementById('token-expired-banner');
+        if (banner) banner.classList.remove('hidden');
+        return;
+      }
+    }
+    addVizStep('\uD83D\uDD0D', 'Demarrage preview locale...', 'text-cyan-400');
+    var previewBtn = document.getElementById('btn-preview-local');
+    if (previewBtn) { previewBtn.disabled = true; previewBtn.textContent = '\u23F3...'; }
+    try {
       var r = await fetchWithAuth(API_HOST + '/api/apps/' + appId + '/preview/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1292,22 +1334,29 @@
         var bar = document.getElementById('preview-url-bar');
         var iframe = document.getElementById('preview-iframe');
         var placeholder = document.getElementById('preview-placeholder');
-        if (bar) bar.value = 'Preview locale — ' + slug;
-        // iframe via proxy (token en query string)
+        if (bar) bar.value = slug + ' (preview locale)';
         if (iframe) { iframe.src = fullUrl; }
         if (placeholder) placeholder.classList.add('hidden');
         var toggleBtn = document.getElementById('btn-toggle-preview');
         if (toggleBtn) toggleBtn.classList.remove('hidden');
-        addVizStep('\uD83D\uDFE2', 'Preview prete ! Clique sur "Preview" pour voir.', 'text-emerald-400 font-bold');
+        addVizStep('\uD83D\uDFE2', 'Preview prete ! Bascule vers Preview.', 'text-emerald-400 font-bold');
+        if (!_previewVisible) togglePreviewPanel();
       } else {
-        addVizStep('\u26A0\uFE0F', 'Preview: ' + (d.error || 'Impossible de demarrer'), 'text-orange-400');
+        var errMsg = d.error || 'Impossible de demarrer';
+        if (errMsg.includes('redemarre') || errMsg.includes('introuvable')) {
+          addVizStep('\u26A0\uFE0F', 'Preview: projet absent du disque (free tier a redemarre). Deploie d\'abord puis preview.', 'text-orange-400');
+        } else {
+          addVizStep('\u26A0\uFE0F', 'Preview: ' + errMsg, 'text-orange-400');
+        }
       }
     } catch(e) {
-      addVizStep('\u26A0\uFE0F', 'Preview indisponible (free tier): ' + e.message, 'text-orange-400');
+      addVizStep('\u26A0\uFE0F', 'Preview: ' + e.message, 'text-orange-400');
+    } finally {
+      if (previewBtn) { previewBtn.disabled = false; previewBtn.innerHTML = '&#x1F4F1; Preview'; }
     }
   }
 
-  function togglePreviewPanel() {
+    function togglePreviewPanel() {
     _previewVisible = !_previewVisible;
     var previewPanel = document.getElementById('gen-preview-panel');
     var consolePanel = document.getElementById('gen-ai-visualization');
