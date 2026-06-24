@@ -1,0 +1,29 @@
+# Node
+node_modules/
+dist/
+.env
+*.env.local
+
+# Temp & Build
+/tmp/
+*.log
+*.pid
+
+# Backup files (ne jamais commiter)
+*.bak
+*.bak2
+*.bak3
+*.bak4
+*.old
+
+# Patch scripts (outilsd e dev uniquement)
+patch_*.py
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

@@ -287,7 +287,10 @@ function authenticateJWT(req, res, next) {
     req.user = verified;
     next();
   } catch (err) {
-    res.status(403).json({ error: "Access Token is invalid or expired." });
+    if (err.name === "TokenExpiredError") {
+      return res.status(401).json({ error: "TOKEN_EXPIRED", message: "Session expirée. Veuillez vous reconnecter." });
+    }
+    return res.status(403).json({ error: "Access Token is invalid or expired." });
   }
 }
 
@@ -953,26 +956,7 @@ app.get("/api/apps/:id/logs", authenticateJWT, async (req, res) => {
 });
 
 // --- HEALTH CHECK PAR APP ---
-app.get("/api/apps/:id/health", authenticateJWT, async (req, res) => {
-  const appId = req.params.id;
-  try {
-    let slug = "";
-    if (pgClientPool) {
-      const client = await pgClientPool.connect();
-      try {
-        const appRes = await client.query("SELECT slug FROM apps WHERE id = $1", [appId]);
-        slug = appRes.rows[0]?.slug;
-      } finally { client.release(); }
-    } else {
-      slug = "mock-app-" + appId;
-    }
-    if (!slug) return res.json({ healthy: false, reason: "App introuvable" });
-    const healthy = await processManager.healthCheck(slug);
-    res.json({ healthy, slug });
-  } catch (err) {
-    res.status(500).json({ healthy: false, reason: err.message });
-  }
-});
+// [DUPLICATE REMOVED - voir route /api/apps/:id/health ci-dessus]
 
 // ─── ADAPT PROJECT ───────────────────────────────────────────────────────────
 app.post("/api/apps/:id/adapt", authenticateJWT, async (req, res) => {
