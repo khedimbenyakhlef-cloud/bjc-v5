@@ -569,16 +569,33 @@ async function generateWithExtendedBudget(prompt, systemInstruction, opts) {
 // ─── DETECTION DU RUNTIME A PARTIR DU PROJET DE BASE (fichiers ou zip) ──────
 function detectRuntimeFromFiles(names, filesMap) {
   const lower = names.map(function(n) { return n.toLowerCase(); });
+
+  // Python
   if (lower.indexOf("requirements.txt") !== -1 || lower.some(function(n) { return n.endsWith(".py"); })) {
     return "python";
   }
-  if (lower.indexOf("package.json") !== -1) {
-    const pkg = String((filesMap || {})["package.json"] || "");
+
+  // Node.js : package.json present (peu importe le niveau)
+  const pkgEntry = lower.find(function(n) { return n === "package.json" || n.endsWith("/package.json"); });
+  if (pkgEntry) {
+    // Chercher le contenu dans filesMap avec la cle originale
+    const origKey = names[lower.indexOf(pkgEntry)];
+    const pkg = String((filesMap || {})[origKey] || (filesMap || {})["package.json"] || "");
+    // Si package.json existe => c'est Node.js, peu importe le contenu
     return pkg.indexOf("\"express\"") !== -1 ? "express" : "nodejs";
   }
-  if (lower.indexOf("index.html") !== -1 && !lower.some(function(n) { return n.endsWith(".js"); })) {
+
+  // server.js ou app.js a la racine => Node.js
+  if (lower.some(function(n) { return n === "server.js" || n === "app.js" || n === "index.js"; })) {
+    return "nodejs";
+  }
+
+  // index.html SANS aucun .js ni package.json => statique pur
+  if (lower.indexOf("index.html") !== -1 && !lower.some(function(n) { return n.endsWith(".js") || n.endsWith(".jsx") || n.endsWith(".ts") || n.endsWith(".tsx"); })) {
     return "static";
   }
+
+  // Par defaut : nodejs (jamais retourner static si doute)
   return "nodejs";
 }
 
