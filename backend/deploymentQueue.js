@@ -98,12 +98,42 @@ async function runBjcDeploymentPipeline({ deploymentId, appId, slug, zipB2Key, s
 
     // Step 4: Automatic Runtime Detection Heuristics
     appendLog(deploymentId, "🔍 Exécution de l'algorithme d'auto-détection du runtime d'hébergement...");
+
+    // ── AUTO-FLATTEN : si le ZIP a extrait un seul sous-dossier, remonter les fichiers ──
+    (function flattenIfNeeded() {
+      const entries = fs.readdirSync(targetDir);
+      const nonHidden = entries.filter(function(e) { return !e.startsWith('.'); });
+      if (nonHidden.length === 1) {
+        const sub = path.join(targetDir, nonHidden[0]);
+        if (fs.statSync(sub).isDirectory()) {
+          appendLog(deploymentId, "[flatten] Sous-dossier unique detecte (" + nonHidden[0] + ") — remontee des fichiers a la racine...");
+          const subEntries = fs.readdirSync(sub);
+          for (const e of subEntries) {
+            fs.renameSync(path.join(sub, e), path.join(targetDir, e));
+          }
+          try { fs.rmdirSync(sub); } catch(e) {}
+          appendLog(deploymentId, "[flatten] OK — " + subEntries.length + " element(s) remonte(s).");
+        }
+      }
+    })();
+
     const files = fs.readdirSync(targetDir);
     let detectedRuntime = "static";
 
-    if (files.includes("package.json")) {
-      const pkgContent = fs.readFileSync(path.join(targetDir, "package.json"), "utf8");
+    // Chercher package.json a la racine ou dans les sous-dossiers (1 niveau)
+    const hasPkgJson = files.includes("package.json") ||
+      files.some(function(f) {
+        try { return fs.statSync(path.join(targetDir, f)).isDirectory() && fs.existsSync(path.join(targetDir, f, "package.json")); } catch(e) { return false; }
+      });
+
+    if (hasPkgJson) {
+      const pkgPath = files.includes("package.json")
+        ? path.join(targetDir, "package.json")
+        : path.join(targetDir, files.find(function(f) { try { return fs.statSync(path.join(targetDir, f)).isDirectory() && fs.existsSync(path.join(targetDir, f, "package.json")); } catch(e) { return false; } }), "package.json");
+      const pkgContent = fs.readFileSync(pkgPath, "utf8");
       detectedRuntime = pkgContent.includes('"express"') ? "express" : "nodejs";
+    } else if (files.some(function(f){ return f==="server.js"||f==="app.js"||f==="index.js"; })) {
+      detectedRuntime = "nodejs";
     } else if (files.includes("requirements.txt") || files.includes("main.py") || files.includes("app.py")) {
       detectedRuntime = "python";
     } else if (files.includes("go.mod") || files.includes("main.go")) {
